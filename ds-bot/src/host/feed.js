@@ -44,6 +44,7 @@ export function install(rt) {
       publish('live', {})
     }, LIVE_DELAY_MS)
   }
+  rt.notifyLive = live
   ctx.on('agent/status', ({ agent }) => {
     if (rt.selfOf(agent.id) !== undefined) live()
   })

@@ -46,7 +46,7 @@ function ProviderRow({ provider, apply, actions, open, onToggle }) {
   useEffect(() => { if (!open) setConfirm(false) }, [open])
   const state = keyState(provider.key)
   const shown = provider.models.slice(0, SHOWN_MODELS)
-  const hint = provider.error ?? (provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
+  const hint = provider.error ?? (provider.local ? t('Uses your existing {cli} CLI login and model settings.', { cli: provider.localCli ?? 'Codex' }) : provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
   return h('div', { className: 'bt-secret-item bt-provider', 'data-open': open ? '' : undefined },
     h('button', { type: 'button', className: 'bt-set-row bt-secret-summary', 'aria-expanded': open, onClick: onToggle },
       h('span', { className: 'bt-set-copy' },

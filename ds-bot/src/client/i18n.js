@@ -5,6 +5,17 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Starting {cli}': '正在启动 {cli}',
+  '{cli} is waiting for a response': '{cli} 正在等待模型响应',
+  '{cli} is thinking': '{cli} 正在思考',
+  '{cli} is preparing the reply': '{cli} 正在生成回复',
+  '{cli} is validating the reply': '{cli} 正在校验回复',
+  '{cli} completed': '{cli} 已完成',
+  '{cli} failed': '{cli} 调用失败',
+  '{cli} stopped': '{cli} 已停止',
+
+  'Uses your existing {cli} CLI login and model settings.': '使用本机 {cli} CLI 已有的登录和模型配置。',
+  'Antigravity CLI is unavailable for your current user location. Check agy in a terminal.': 'Antigravity 服务不支持当前用户位置，请先在终端确认 agy 可正常使用。',
   // Shared
   'Main Bot': '主 Bot',
   Working: '工作中',

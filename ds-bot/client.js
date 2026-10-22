@@ -42,6 +42,16 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Starting {cli}": "正在启动 {cli}",
+  "{cli} is waiting for a response": "{cli} 正在等待模型响应",
+  "{cli} is thinking": "{cli} 正在思考",
+  "{cli} is preparing the reply": "{cli} 正在生成回复",
+  "{cli} is validating the reply": "{cli} 正在校验回复",
+  "{cli} completed": "{cli} 已完成",
+  "{cli} failed": "{cli} 调用失败",
+  "{cli} stopped": "{cli} 已停止",
+  "Uses your existing {cli} CLI login and model settings.": "使用本机 {cli} CLI 已有的登录和模型配置。",
+  "Antigravity CLI is unavailable for your current user location. Check agy in a terminal.": "Antigravity 服务不支持当前用户位置，请先在终端确认 agy 可正常使用。",
   // Shared
   "Main Bot": "主 Bot",
   Working: "工作中",
@@ -5864,9 +5874,25 @@ function useRunningHost(active) {
       return void 0;
     }
     let frame = 0;
+    let own = null;
     const find = () => {
       frame = 0;
-      const node = document.querySelector("[data-chat-flow] > [data-chat-running]");
+      const flow = document.querySelector("[data-chat-flow]");
+      let node = flow?.querySelector(":scope > [data-chat-running]:not([data-bt-running-host])");
+      if (node) {
+        own?.remove();
+        own = null;
+      } else if (flow) {
+        if (!own || own.parentElement !== flow) {
+          own?.remove();
+          own = document.createElement("div");
+          own.dataset.chatRunning = "";
+          own.dataset.btRunningHost = "";
+          flow.append(own);
+        }
+        if (flow.lastElementChild !== own) flow.append(own);
+        node = own;
+      }
       setHost((prev) => prev === node ? prev : node);
     };
     const observer = new MutationObserver(() => {
@@ -5877,6 +5903,7 @@ function useRunningHost(active) {
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      own?.remove();
     };
   }, [active]);
   return host;
@@ -5930,7 +5957,9 @@ function useRowEntrances(replacing) {
 }
 function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster((value) => value);
-  const running = useSessionStatus((map) => map.get(sessionId)?.running === true);
+  const sessionRunning = useSessionStatus((map) => map.get(sessionId)?.running === true);
+  const cli = useWork?.((work) => work.cli?.[sessionId]);
+  const running = sessionRunning || cli?.active === true;
   const turnAt = useWork?.((work) => work.turns?.[sessionId]);
   const runAt = (0, import_react10.useRef)(0);
   if (!running) runAt.current = 0;
@@ -5948,7 +5977,8 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   const inputRef = (0, import_react10.useRef)(0);
   const inputAt = Math.max(inputRef.current, pendingInput);
   inputRef.current = inputAt;
-  const want = !visible ? null : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
+  const cliLabel = cli?.active ? cliPhaseLabel(cli) : void 0;
+  const want = !visible ? null : cliLabel && !tool ? { key: `cli:${cli.id}:${cli.phase}`, label: cliLabel, state: "thinking" } : inputAt > (tool?.at ?? 0) ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: "thinking" } : tool ? { key: tool.label ? `tool:${tool.label}` : "working", label: tool.label, pool: PHRASES.working, state: tool.state ?? "working" } : { key: "thinking", pool: PHRASES.thinking, state: "thinking" };
   const [shown, setShown] = (0, import_react10.useState)(null);
   const wantKey = want?.key ?? null;
   const markState = (0, import_react10.useRef)("thinking");
@@ -6000,15 +6030,26 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
   if (!host || phase === null || !shown) return null;
   return (0, import_react_dom2.createPortal)((0, import_react10.createElement)(
     "div",
-    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0, "aria-hidden": true },
-    bot ? (0, import_react10.createElement)(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : (0, import_react10.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
+    { className: "bt-typing", "data-exiting": phase === "out" ? "" : void 0, "data-cli-phase": cli?.phase },
+    bot ? (0, import_react10.createElement)(BotMark, { bot, size: 28, state: markState.current, live: running, pokeable: running }) : (0, import_react10.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
     (0, import_react10.createElement)(
       "span",
       { className: "bt-typing-text" },
-      (0, import_react10.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label" }, (0, import_react10.createElement)(Shimmer, null, `${shown.text}…`)),
-      (0, import_react10.createElement)(Elapsed, { at: Math.max(turnAt ?? runAt.current, inputAt), className: "bt-typing-time" })
+      (0, import_react10.createElement)("span", { key: `${shown.key}:${shown.at}`, className: "bt-typing-label", role: "status" }, (0, import_react10.createElement)(Shimmer, null, `${shown.text}…`)),
+      (0, import_react10.createElement)(Elapsed, { at: Math.max(turnAt ?? cli?.startedAt ?? runAt.current, inputAt), className: "bt-typing-time" })
     )
   ), host);
+}
+function cliPhaseLabel(cli) {
+  const name = cli.provider === "local-codex" ? "Codex CLI" : "Antigravity CLI";
+  const labels = {
+    starting: "Starting {cli}",
+    waiting: "{cli} is waiting for a response",
+    thinking: "{cli} is thinking",
+    responding: "{cli} is preparing the reply",
+    validating: "{cli} is validating the reply"
+  };
+  return labels[cli.phase] ? t(labels[cli.phase], { cli: name }) : void 0;
 }
 
 // src/client/dsh-offer.js
@@ -12265,7 +12306,7 @@ function ProviderRow({ provider, apply: apply2, actions, open, onToggle }) {
   }, [open]);
   const state = keyState(provider.key);
   const shown = provider.models.slice(0, SHOWN_MODELS);
-  const hint = provider.error ?? (provider.models.length === 0 ? t("No models") : t("{count} models", { count: provider.models.length }));
+  const hint = provider.error ?? (provider.local ? t("Uses your existing {cli} CLI login and model settings.", { cli: provider.localCli ?? "Codex" }) : provider.models.length === 0 ? t("No models") : t("{count} models", { count: provider.models.length }));
   return (0, import_react32.createElement)(
     "div",
     { className: "bt-secret-item bt-provider", "data-open": open ? "" : void 0 },

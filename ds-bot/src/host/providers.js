@@ -121,6 +121,13 @@ export function install(rt) {
         ...(entry.error ? { error: entry.error } : {}),
       })
     }
+    for (const [local, cli] of [[rt.localCodex, 'Codex'], [rt.localAntigravity, 'Antigravity']]) {
+      if (!local) continue
+      providers.push({
+        id: local.provider, name: `Local ${cli} CLI`, local: true, localCli: cli, key: null, removable: false,
+        models: catalog.filter(model => model.provider === local.provider).map(model => ({ ref: model.ref, name: model.name })),
+      })
+    }
     // The ones that come with the setup first, then the added ones as DSH lists them.
     providers.sort((a, b) => Number(a.removable) - Number(b.removable))
     return { available: true, providers, addable, protocols: PROTOCOLS }

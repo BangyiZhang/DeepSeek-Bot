@@ -53,6 +53,10 @@ npx @deepseek-ai/dsh@0.2.1-rc.2 web
 
 ## 配置
 
+**本地 Codex CLI：** 已安装 `codex` 时，模型选择里会出现 **Local Codex CLI → Codex CLI · configured model**。它通过本机 CLI 的 stdio app-server 调用，复用 CLI 已有的登录、供应商、模型和推理强度默认配置，无需登录 DeepSeek 或另填 API Key。Bot 工具和权限继续由 DSH 管理。见[适配说明](docs/plans/2026-10-22-local-codex-cli.md)。
+
+**本地 Antigravity CLI：** 已安装 `agy` 时，可选择 **Local Antigravity CLI → Antigravity CLI · configured model**，复用它已有的登录、模型和推理强度默认配置。适配器通过无界面模式的结构化输出，将工具请求交给 DSH 执行；最终结果通过校验后显示回复。CLI 账号和服务须支持你所在位置的推理调用。见[适配说明](docs/plans/2026-10-22-local-antigravity-cli.md)。
+
 我强烈建议你直接通过和 bot 对话来配置其他 bot 和群聊。
 
 ## 功能

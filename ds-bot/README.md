@@ -75,6 +75,10 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     updateCheck: true               # look for a newer DS Bot when a window opens; default true
     updateRegistry: https://registry.example/   # ask only this npm registry for updates
     github: false                   # hide the GitHub connector; default shown in Connectors
+    localCodex: true                # offer an installed Codex CLI as a model source; default true
+    # codexCommand: /path/to/codex   # optional executable path; defaults to auto-discovery
+    localAntigravity: true          # offer an installed agy CLI as a model source; default true
+    # antigravityCommand: /path/to/agy  # optional executable path; defaults to auto-discovery
 ```
 
 **Updates**: when a window opens, DS Bot asks where it was installed from for a newer release: the npm registry (the one the DSH plugin manager installs from, then its fallbacks), or the latest GitHub release for a `github:…#vX.Y.Z` install. A newer version shows a cloud button at the top right of the sidebar; **Update** reinstalls DS Bot through the DSH plugin manager, and the new version runs from the next DSH start. A linked or local checkout is never offered an update. Settings → About DS Bot shows the same state, with **Check for updates** to ask again at once.

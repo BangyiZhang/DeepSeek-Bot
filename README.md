@@ -53,6 +53,10 @@ The [`docker/`](docker/) directory builds an image with DSH Web and DS Bot, for 
 
 ## Setup
 
+**Local Codex CLI:** when `codex` is installed, the model picker also offers **Local Codex CLI → Codex CLI · configured model**. It calls the local CLI through its stdio app-server and uses its existing login, provider, model and reasoning defaults. No DeepSeek sign-in or additional API key is needed. Bot tools and permissions remain managed by DSH. See [the adapter notes](docs/plans/2026-10-22-local-codex-cli.md).
+
+**Local Antigravity CLI:** when `agy` is installed, choose **Local Antigravity CLI → Antigravity CLI · configured model** to reuse its login, model and effort defaults. The adapter uses headless structured output to send tool requests back to DSH. Replies appear after the final result is validated. The CLI account and service must support inference in your location. See [the adapter notes](docs/plans/2026-10-22-local-antigravity-cli.md).
+
 I strongly recommend that you set up your other bots and group chats by just talking to a bot.
 
 ## Features

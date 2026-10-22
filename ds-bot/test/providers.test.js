@@ -102,6 +102,22 @@ test('the page lists the providers set up and the ones DSH can add', async () =>
   assert.deepEqual(view.protocols, ['openai-completions', 'openai-responses', 'anthropic-messages'])
 })
 
+test('local CLI providers appear together without key controls or mixed login labels', async () => {
+  const { rt } = dsh()
+  rt.localCodex = { provider: 'local-codex' }
+  rt.localAntigravity = { provider: 'local-antigravity' }
+  const catalog = rt.catalog
+  rt.catalog = async options => [...await catalog(options), ...['codex', 'antigravity'].map(cli => ({ provider: `local-${cli}`, ref: `local-${cli}/default`, name: `${cli} configured model` }))]
+  const view = await rt.providersView()
+  for (const [id, cli] of [['local-codex', 'Codex'], ['local-antigravity', 'Antigravity']]) {
+    const provider = row(view, id)
+    assert.equal(provider.localCli, cli)
+    assert.equal(provider.key, null)
+    assert.equal(provider.removable, false)
+    assert.equal(provider.models[0].ref, `${id}/default`)
+  }
+})
+
 test('a saved API key goes to the provider\'s reference and frees its models', async () => {
   const { rt, store, writes } = dsh()
   await rt.setProviderKey('deepseek-official', '  sk-test  ')

@@ -19,15 +19,31 @@ function useRunningHost(active) {
   useEffect(() => {
     if (!active) { setHost(null); return undefined }
     let frame = 0
+    let own = null
     const find = () => {
       frame = 0
-      const node = document.querySelector('[data-chat-flow] > [data-chat-running]')
+      const flow = document.querySelector('[data-chat-flow]')
+      let node = flow?.querySelector(':scope > [data-chat-running]:not([data-bt-running-host])')
+      if (node) { own?.remove(); own = null }
+      else if (flow) {
+        // The shell creates its running slot only after the first visible chunk.
+        // Local CLIs can spend many seconds starting or waiting before that point.
+        if (!own || own.parentElement !== flow) {
+          own?.remove()
+          own = document.createElement('div')
+          own.dataset.chatRunning = ''
+          own.dataset.btRunningHost = ''
+          flow.append(own)
+        }
+        if (flow.lastElementChild !== own) flow.append(own)
+        node = own
+      }
       setHost(prev => (prev === node ? prev : node))
     }
     const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(find) })
     observer.observe(document.querySelector('[data-conversation-scroll]') ?? document.body, { childList: true, subtree: true })
     find()
-    return () => { cancelAnimationFrame(frame); observer.disconnect() }
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); own?.remove() }
   }, [active])
   return host
 }
@@ -77,7 +93,9 @@ function useRowEntrances(replacing) {
 
 export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, useSession, useWork, actions }) {
   const roster = useRoster(value => value)
-  const running = useSessionStatus(map => map.get(sessionId)?.running === true)
+  const sessionRunning = useSessionStatus(map => map.get(sessionId)?.running === true)
+  const cli = useWork?.(work => work.cli?.[sessionId])
+  const running = sessionRunning || cli?.active === true
   const turnAt = useWork?.(work => work.turns?.[sessionId])
   // Until the host reports the turn's start, the clock counts from when this window
   // saw the run begin.
@@ -103,7 +121,9 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   // the newest activity, and the phrase and the clock restart from the send.
   const inputAt = Math.max(inputRef.current, pendingInput)
   inputRef.current = inputAt
+  const cliLabel = cli?.active ? cliPhaseLabel(cli) : undefined
   const want = !visible ? null
+    : cliLabel && !tool ? { key: `cli:${cli.id}:${cli.phase}`, label: cliLabel, state: 'thinking' }
     : inputAt > (tool?.at ?? 0)
       ? { key: `input:${inputAt}`, pool: PHRASES.thinking, state: 'thinking' }
       : tool ? { key: tool.label ? `tool:${tool.label}` : 'working', label: tool.label, pool: PHRASES.working, state: tool.state ?? 'working' }
@@ -153,9 +173,18 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
   useRowEntrances(() => leaving.current || Date.now() - endedAt.current < 300)
   const host = useRunningHost(running)
   if (!host || phase === null || !shown) return null
-  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'aria-hidden': true },
-    bot ? h(BotMark, { bot, size: 28, state: markState.current, live: true, pokeable: true }) : h(RoomAvatar, { room, roster, size: 28 }),
+  return createPortal(h('div', { className: 'bt-typing', 'data-exiting': phase === 'out' ? '' : undefined, 'data-cli-phase': cli?.phase },
+    bot ? h(BotMark, { bot, size: 28, state: markState.current, live: running, pokeable: running }) : h(RoomAvatar, { room, roster, size: 28 }),
     h('span', { className: 'bt-typing-text' },
-      h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label' }, h(Shimmer, null, `${shown.text}…`)),
-      h(Elapsed, { at: Math.max(turnAt ?? runAt.current, inputAt), className: 'bt-typing-time' }))), host)
+      h('span', { key: `${shown.key}:${shown.at}`, className: 'bt-typing-label', role: 'status' }, h(Shimmer, null, `${shown.text}…`)),
+      h(Elapsed, { at: Math.max(turnAt ?? cli?.startedAt ?? runAt.current, inputAt), className: 'bt-typing-time' }))), host)
+}
+
+export function cliPhaseLabel(cli) {
+  const name = cli.provider === 'local-codex' ? 'Codex CLI' : 'Antigravity CLI'
+  const labels = {
+    starting: 'Starting {cli}', waiting: '{cli} is waiting for a response', thinking: '{cli} is thinking',
+    responding: '{cli} is preparing the reply', validating: '{cli} is validating the reply',
+  }
+  return labels[cli.phase] ? t(labels[cli.phase], { cli: name }) : undefined
 }
