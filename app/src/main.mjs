@@ -349,10 +349,12 @@ async function askDownload(version) {
 function createWindow() {
   const dark = nativeTheme.shouldUseDarkColors
   const win32 = process.platform === 'win32'
+  const darwin = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     width: 1320, height: 860, minWidth: 720, minHeight: 480,
     title: 'DeepSeek Bot', show: false, icon: iconFile,
     backgroundColor: mica ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
+    ...(darwin ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 18, y: 23 } } : {}),
     // Frameless as in DSH Desktop: the caption buttons overlay the page's band. They keep the
     // sidebar's colors until the page sends the colors of the surface under them.
     ...(win32 ? {
@@ -362,15 +364,15 @@ function createWindow() {
     } : {}),
     webPreferences: {
       preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true,
-      additionalArguments: [`--ds-bot-origin=${origin}`, ...(win32 ? [`--ds-bot-caption=${String(CAPTION_HEIGHT)}`, ...(mica ? ['--ds-bot-mica'] : [])] : [])],
+      additionalArguments: [`--ds-bot-origin=${origin}`, ...(darwin ? ['--ds-bot-mac-titlebar'] : []), ...(win32 ? [`--ds-bot-caption=${String(CAPTION_HEIGHT)}`, ...(mica ? ['--ds-bot-mica'] : [])] : [])],
     },
   })
   mainWindow.once('ready-to-show', () => { mainWindow?.show() })
   mainWindow.on('page-title-updated', (event) => { event.preventDefault() })
   mainWindow.on('closed', () => { mainWindow = undefined })
   const contents = mainWindow.webContents
-  if (win32) {
-    // Fullscreen hides the caption buttons, and the page drops its band meanwhile. A reload
+  if (win32 || darwin) {
+    // Fullscreen hides the native controls; the page adjusts its reserved space. A reload
     // registers the page's listener again, so the state goes out after every load too.
     const sendFullscreen = () => { if (mainWindow !== undefined) contents.send(IPC.fullscreen, mainWindow.isFullScreen()) }
     mainWindow.on('enter-full-screen', sendFullscreen)
@@ -379,6 +381,10 @@ function createWindow() {
   }
   if (mica) {
     const css = readFileSync(join(here, 'mica.css'), 'utf8')
+    contents.on('dom-ready', () => { void contents.insertCSS(css) })
+  }
+  if (darwin) {
+    const css = readFileSync(join(here, 'mac-frame.css'), 'utf8')
     contents.on('dom-ready', () => { void contents.insertCSS(css) })
   }
   contents.setWindowOpenHandler(({ url }) => {

@@ -23,6 +23,10 @@ npm installs `ds-bot` from `../ds-bot` as a copy of its package files (`install-
 
 On macOS, Electron's default `userData` directory for `productName` "DeepSeek Bot" is `~/Library/Application Support/DeepSeek Bot`.
 
+## Window layout
+
+On macOS, the native traffic lights sit in the sidebar's former brand area. The separate title bar and the top-left DS Bot wordmark are hidden. Empty areas of the sidebar header and chat header drag the window, while controls remain clickable. The app retains web keyboard handling and uses its own layout marker rather than enabling DSH's native-menu shortcut mode. Fullscreen and a collapsed sidebar reserve space for the native controls.
+
 ## First start and import
 
 At its first start the app asks, in system dialogs, for the data location (`~/.ds-bot` by default) and the team workspace (`~/DeepSeek Bot`), and keeps the answer in `locations.json` in its own data. Neither folder may be inside the other or inside the user's DSH data.

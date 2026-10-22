@@ -1,0 +1,22 @@
+/* Keep the web shortcut mode: only this app's window chrome changes. */
+html[data-ds-bot-mac-titlebar] {
+  --dsh-frame-chrome-top: 0px;
+}
+
+/* The native traffic lights occupy the brand's existing space. */
+html[data-ds-bot-mac-titlebar] .bt-side-top .bt-brand {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html[data-ds-bot-mac-titlebar] :is(.bt-side-top, .bt-head) {
+  -webkit-app-region: drag;
+}
+html[data-ds-bot-mac-titlebar] :is(.bt-side-top, .bt-head) :is(button, a, input, [role="button"]) {
+  -webkit-app-region: no-drag;
+}
+
+/* A collapsed sidebar's expand control sits below the native buttons. */
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_collapsed"] > [class*="_logoRow"] {
+  margin-top: 48px;
+}

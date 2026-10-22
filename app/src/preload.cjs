@@ -1,4 +1,5 @@
-// Gives the page that the app's Host serves the app's own bridge. On Windows it also marks the
+// Gives the page that the app's Host serves the app's own bridge. macOS uses an app-owned
+// layout marker for its inset native buttons. On Windows it also marks the
 // page for the frameless window the way DSH Desktop's preload does
 // (apps/desktop/src/preload-windows.ts, preload-platform.ts and preload-theme.ts; see NOTICE),
 // but without data-platform: that puts DSH's shortcuts on native menu input, which this
@@ -14,14 +15,18 @@ if (host !== undefined && location.origin === host) {
     teamWorkspaceChanged: (path) => { ipcRenderer.send('ds-bot:team-workspace', String(path)) },
   })
   const caption = process.argv.find(value => value.startsWith('--ds-bot-caption='))
-  if (caption !== undefined) {
+  const mac = process.argv.includes('--ds-bot-mac-titlebar')
+  if (caption !== undefined || mac) {
     ipcRenderer.on('ds-bot:fullscreen', (_event, fullscreen) => {
       const root = document.documentElement
       if (root === null) return
       if (fullscreen) root.dataset.fullscreen = 'true'
       else delete root.dataset.fullscreen
     })
-    const start = () => { frameless(caption.slice('--ds-bot-caption='.length), process.argv.includes('--ds-bot-mica')) }
+    const start = () => {
+      if (mac) document.documentElement.dataset.dsBotMacTitlebar = ''
+      else frameless(caption.slice('--ds-bot-caption='.length), process.argv.includes('--ds-bot-mica'))
+    }
     // A preload runs before the document root exists.
     if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true })
     else start()
