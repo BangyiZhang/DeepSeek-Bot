@@ -48,7 +48,11 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
   const running = useSessionStatus(map => map.get(part)?.running === true)
-  const active = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  const retainedPart = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  // Historical parts still belong to the same Bot when opened in the main view.
+  const shownSession = useSessions(list => Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
+  const ownedSessions = new Set([id, part, bot.sessionId, ...(bot.parts ?? [])].filter(Boolean))
+  const active = shownSession === null ? retainedPart : ownedSessions.has(shownSession) || roster.byId?.[shownSession]?.id === id
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
@@ -74,7 +78,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
-      type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      type: 'button', className: active ? 'bt-tile active' : 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
+      'data-selection-patch': 'owner-v2', 'data-current-part': part, 'data-main-view': shownSession ?? '', 'data-active': String(active),
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
     h(BotAvatar, { bot, size: 60, state, main: true }),

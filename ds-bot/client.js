@@ -2151,8 +2151,9 @@ var GLASS_SHELL_CSS = `
 :is(.bt-menu,.bt-drop,.bt-avedit,.bt-palette,.bt-settings,.bt-mem){border-radius:20px;corner-shape:superellipse(1.25)}
 
 .bt-tile{width:104px;box-sizing:border-box;padding:12px 10px 10px;gap:6px;border-radius:20px;corner-shape:superellipse(1.25)}
-.bt-tile[aria-current=page]{background:color-mix(in srgb,var(--bt-active) 60%,transparent);box-shadow:inset 0 0 0 1px var(--bt-line)}
-.bt-tile:hover{background:var(--bt-hover)}
+.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active);box-shadow:inset 0 0 0 2px var(--bt-accent)}
+.bt-tile:not([aria-current=page]):not(.active):hover{background:var(--bt-hover)}
+.bt-tile[aria-current=page] .bt-tile-name{font-weight:600}
 .bt-tile .bt-chip{max-width:100%;box-sizing:border-box;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
 .bt-tile-name{font-weight:500}
 [data-sidebar-right-toggle]{width:36px;height:36px;padding:0;border-radius:50%;corner-shape:round;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
@@ -2551,8 +2552,8 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;flex:1 1 auto}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:12px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
-.bt-tile:hover{background:var(--bt-hover)}
-.bt-tile[aria-current=page]{background:var(--bt-active)}
+.bt-tile:not([aria-current=page]):not(.active):hover{background:var(--bt-hover)}
+.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active);box-shadow:inset 0 0 0 2px var(--bt-accent)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:400;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 4px;border-radius:4px;background:var(--bt-hover);border:1px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:84px;overflow:hidden;text-overflow:ellipsis}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
@@ -8791,7 +8792,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const part = currentPart(bot);
   const preview = useSessions((list) => previewOf(list, part, roster.exchangeTurns[part]));
   const running = useSessionStatus((map) => map.get(part)?.running === true);
-  const active = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
+  const retainedPart = useSessionRetainInfo(part, (info) => (info?.retainedBy?.mainView ?? 0) > 0);
+  const shownSession = useSessions((list) => Object.values(list.byId ?? {}).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
+  const ownedSessions = new Set([id, part, bot.sessionId, ...bot.parts ?? []].filter(Boolean));
+  const active = shownSession === null ? retainedPart : ownedSessions.has(shownSession) || roster.byId?.[shownSession]?.id === id;
   const unread = useSessionStatus((map) => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== void 0) || marked && !active;
   useMarkedUnread(id, active, marked, actions);
   const main = isMainOf(roster, id);
@@ -8818,9 +8822,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       "button",
       {
         type: "button",
-        className: "bt-tile",
+        className: active ? "bt-tile active" : "bt-tile",
         "aria-label": label,
         "aria-current": active ? "page" : void 0,
+        "data-selection-patch": "owner-v2",
+        "data-current-part": part,
+        "data-main-view": shownSession ?? "",
+        "data-active": String(active),
         "data-bot-id": id,
         title: preview || bot.name,
         onClick: () => actions.openSession(id),
@@ -9919,7 +9927,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       title: dictation.listening ? t("Stop dictation") : t("Dictate"),
       onMouseDown: keepComposerFocus,
       onClick: () => {
-        const trigger = document.querySelector("button[class*='trigger']");
+        const trigger = document.querySelector("[class*='_activity'] button");
         if (trigger) {
           trigger.click();
           return;
@@ -10459,7 +10467,7 @@ async function openCapture() {
   if (!devices?.getUserMedia || typeof MediaRecorder === "undefined") throw captureError("unavailable");
   let stream;
   try {
-    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
   } catch (error) {
     throw captureError(error?.name === "NotAllowedError" ? "blocked" : "failed", error);
   }
@@ -10525,18 +10533,27 @@ async function transcribeWave(speech, catalog, wave, signal) {
   if (!result?.ok) throw Object.assign(new Error(result?.error?.message ?? "Transcription failed"), { kind: "service" });
   return String(result.value?.text ?? "").trim();
 }
-function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
-  let spokeAt = 0;
-  let quietSince = 0;
+function turnDetector({ loud = 0.12, quiet = 0.075, quietMs = 700 } = {}) {
+  let spokeAt = null;
+  let quietSince = null;
+  let noiseFloor = 0.035;
   return (level, now) => {
-    if (level >= loud) {
-      spokeAt ||= now;
-      quietSince = 0;
+    if (spokeAt === null) {
+      const threshold = Math.max(loud, noiseFloor * 2.4);
+      if (level >= threshold) {
+        spokeAt = now;
+        return "speech";
+      }
+      noiseFloor = noiseFloor * 0.9 + level * 0.1;
+      return "waiting";
+    }
+    if (level >= Math.max(loud, noiseFloor * 1.9)) {
+      quietSince = null;
       return "speech";
     }
-    if (!spokeAt) return "waiting";
-    if (level < quiet) quietSince ||= now;
-    return quietSince && now - quietSince >= quietMs ? "done" : "speech";
+    if (level < Math.max(quiet, noiseFloor * 1.35)) quietSince ??= now;
+    else if (quietSince === null || now - quietSince < 280) quietSince = null;
+    return quietSince !== null && now - quietSince >= quietMs ? "done" : "speech";
   };
 }
 
@@ -13403,6 +13420,75 @@ function ExchangeDialog({ pair, roster, actions }) {
   );
 }
 
+// src/client/playback.js
+function createPlayback({ endpoint, Audio, synthesis, Utterance, done }) {
+  let audio;
+  let generation = 0;
+  const stop = () => {
+    generation += 1;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      audio = void 0;
+    }
+    synthesis?.cancel();
+  };
+  return {
+    stop,
+    speak(text) {
+      stop();
+      const own = generation;
+      const finish = () => {
+        if (own === generation) done();
+      };
+      let fallbackStarted = false;
+      const fallback = () => {
+        if (own !== generation || fallbackStarted) return;
+        fallbackStarted = true;
+        if (audio) {
+          audio.onended = null;
+          audio.onerror = null;
+          audio.pause();
+          audio = void 0;
+        }
+        if (!synthesis || !Utterance) {
+          finish();
+          return;
+        }
+        const utterance = new Utterance(text);
+        const chinese = /[\u3400-\u9fff]/.test(text);
+        utterance.lang = chinese ? "zh-CN" : "en-US";
+        const voices = synthesis.getVoices();
+        const matching = voices.filter((voice) => voice.lang.toLowerCase().startsWith(chinese ? "zh" : "en"));
+        const selected = matching.find((voice) => /Tingting|Meijia/.test(voice.name)) ?? matching[0];
+        if (selected) utterance.voice = selected;
+        utterance.onend = finish;
+        utterance.onerror = finish;
+        synthesis.speak(utterance);
+      };
+      if (!endpoint || !Audio) {
+        fallback();
+        return;
+      }
+      try {
+        const url = new URL(endpoint);
+        if (!["http:", "https:"].includes(url.protocol) || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password) {
+          fallback();
+          return;
+        }
+        url.searchParams.set("text", text);
+        audio = new Audio(url.href);
+        audio.onended = finish;
+        audio.onerror = fallback;
+        void Promise.resolve(audio.play()).catch(fallback);
+      } catch {
+        fallback();
+      }
+    }
+  };
+}
+
 // src/client/voice.js
 var import_react32 = require("react");
 var plainSpeech = (text) => stripHeader(text).replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>|~-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -13479,10 +13565,23 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
   const reply = (0, import_react32.useRef)(lastReply);
   reply.current = lastReply;
   const turn = (0, import_react32.useRef)(0);
+  const [playback] = (0, import_react32.useState)(() => createPlayback({
+    endpoint: (() => {
+      try {
+        return localStorage.getItem("ds-bot:tts-endpoint");
+      } catch {
+        return null;
+      }
+    })(),
+    Audio: window.Audio,
+    synthesis: window.speechSynthesis,
+    Utterance: window.SpeechSynthesisUtterance,
+    done: () => setPhase((current) => current === "speaking" ? "listening" : current)
+  }));
   const paneLeft = usePaneLeft();
   const close = () => {
     turn.current += 1;
-    window.speechSynthesis?.cancel();
+    playback.stop();
     actions.closeVoice();
   };
   useEscape(close);
@@ -13597,24 +13696,14 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
     const spoken = plainSpeech(text);
     setSaid(spoken);
     setHeard("");
-    if (!window.speechSynthesis || !spoken) {
+    if (!spoken) {
       setPhase("listening");
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(spoken);
-    const isZh = /[\u3400-\u9fff]/.test(spoken);
-    utterance.lang = isZh ? "zh-CN" : "en-US";
-    const voices = window.speechSynthesis.getVoices();
-    const chinese = voices.filter((voice) => (voice.lang ?? "").toLowerCase().replace("_", "-").startsWith("zh"));
-    const selected = isZh ? chinese.find((voice) => voice.name.includes("Tingting")) ?? chinese.find((voice) => voice.name.includes("Meijia")) ?? chinese.find((voice) => !/Eddy|Flo|Grandma|Grandpa|Rocko|Sandy|Shelley|Reed/i.test(voice.name)) ?? chinese[0] : voices.find((voice) => voice.lang.toLowerCase().startsWith("en"));
-    if (selected) utterance.voice = selected;
-    utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
-    utterance.onerror = utterance.onend;
     setPhase("speaking");
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    playback.speak(spoken);
   }, [phase, running, lastReply]);
-  (0, import_react32.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
+  (0, import_react32.useEffect)(() => () => playback.stop(), []);
   const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
   const level = speech ? serviceLevel : micLevel;
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
@@ -13625,7 +13714,7 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
       return;
     }
     turn.current += 1;
-    window.speechSynthesis?.cancel();
+    playback.stop();
     setPhase("paused");
   };
   const openSetup = phase === "setup" ? actions.voiceSetup() : null;

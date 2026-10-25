@@ -1,0 +1,6 @@
+# Browser options are passed through the discovered host plugin entry.
+- insert:
+    - id: client-ui-meme-stickers
+      name: dsh-meme-stickers
+      config:
+        fingerprintBlobs: false

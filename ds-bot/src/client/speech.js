@@ -50,7 +50,7 @@ export async function openCapture() {
   if (!devices?.getUserMedia || typeof MediaRecorder === 'undefined') throw captureError('unavailable')
   let stream
   try {
-    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false })
+    stream = await devices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
   } catch (error) {
     throw captureError(error?.name === 'NotAllowedError' ? 'blocked' : 'failed', error)
   }
@@ -109,13 +109,20 @@ export async function transcribeWave(speech, catalog, wave, signal) {
 
 // Voice activity on the loudness of each animation frame: speech starts above
 // `loud`, and the turn ends after `quietMs` below `quiet`.
-export function turnDetector({ loud = 0.12, quiet = 0.06, quietMs = 1200 } = {}) {
-  let spokeAt = 0
-  let quietSince = 0
+export function turnDetector({ loud = 0.12, quiet = 0.075, quietMs = 700 } = {}) {
+  let spokeAt = null
+  let quietSince = null
+  let noiseFloor = 0.035
   return (level, now) => {
-    if (level >= loud) { spokeAt ||= now; quietSince = 0; return 'speech' }
-    if (!spokeAt) return 'waiting'
-    if (level < quiet) quietSince ||= now
-    return quietSince && now - quietSince >= quietMs ? 'done' : 'speech'
+    if (spokeAt === null) {
+      const threshold = Math.max(loud, noiseFloor * 2.4)
+      if (level >= threshold) { spokeAt = now; return 'speech' }
+      noiseFloor = noiseFloor * 0.9 + level * 0.1
+      return 'waiting'
+    }
+    if (level >= Math.max(loud, noiseFloor * 1.9)) { quietSince = null; return 'speech' }
+    if (level < Math.max(quiet, noiseFloor * 1.35)) quietSince ??= now
+    else if (quietSince === null || now - quietSince < 280) quietSince = null
+    return quietSince !== null && now - quietSince >= quietMs ? 'done' : 'speech'
   }
 }
