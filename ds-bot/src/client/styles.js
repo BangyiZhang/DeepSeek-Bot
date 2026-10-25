@@ -999,6 +999,14 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
 [data-composer-card] [class*="_trailing"]{order:3!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-slot="conversation.input.attachments"]{order:0!important;flex-basis:100%!important}
+/* Slot roots use display:contents, so flex-basis alone cannot reserve an attachment row. */
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *){display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto auto!important;gap:8px!important;padding:10px!important}
+[data-composer-card]>[data-slot="conversation.input.attachments"]:has(> *){display:block!important;grid-column:1 / -1;min-width:0;max-width:100%;min-height:min-content;overflow:visible}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *)>[data-input-scroll]{grid-column:1 / -1;order:1!important;min-height:28px;padding:0 2px!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *) [class*="_tools"]{order:2!important}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *) [class*="_trailing"]{order:3!important;justify-self:end}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *) [data-slot="conversation.input.attachments"] [class*="_card"]{border-radius:20px;background:var(--bt-bubble);border-color:var(--bt-line-2)}
+[data-composer-card]:has(> [data-slot="conversation.input.attachments"] > *):not(:has([data-composer-placeholder])) [data-composer-input]:empty::before{content:var(--bt-placeholder,"Message");color:var(--bt-ink-3);pointer-events:none;position:absolute}
 [data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
 [data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
 [data-composer-placeholder]{font-size:0!important;line-height:0!important}
