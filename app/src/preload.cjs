@@ -13,6 +13,11 @@ if (host !== undefined && location.origin === host) {
     dataLocation: () => ipcRenderer.invoke('ds-bot:data-location'),
     moveData: (workspace) => ipcRenderer.invoke('ds-bot:move-data', typeof workspace === 'string' ? workspace : undefined),
     teamWorkspaceChanged: (path) => { ipcRenderer.send('ds-bot:team-workspace', String(path)) },
+    // The Bot browsers, in the shape of DSH Desktop's browser bridge so that ds-bot drives both
+    // alike; `forget` clears a key's storage, which here outlives the app.
+    browser: browserBridge(),
+    // The app's own updater, for the About row's state and buttons.
+    updates: updatesBridge(),
   })
   const caption = process.argv.find(value => value.startsWith('--ds-bot-caption='))
   const mac = process.argv.includes('--ds-bot-mac-titlebar')
@@ -56,6 +61,56 @@ function macSidebar() {
   if (attach()) return
   const observer = new MutationObserver(() => { if (attach()) observer.disconnect() })
   observer.observe(document.body, { childList: true, subtree: true })
+}
+
+function browserBridge() {
+  const listeners = new Map()
+  ipcRenderer.on('ds-bot:browser-open-requested', (_event, request) => {
+    if (typeof request?.lease !== 'string' || typeof request.url !== 'string') return
+    for (const listener of [...(listeners.get(request.lease) ?? [])]) {
+      try { listener(request.url) } catch (error) { console.error('DeepSeek Bot: a browser link handler failed', error) }
+    }
+  })
+  return {
+    acquire: key => ipcRenderer.invoke('ds-bot:browser-acquire', String(key)),
+    release: lease => ipcRenderer.invoke('ds-bot:browser-release', String(lease)),
+    forget: key => ipcRenderer.invoke('ds-bot:browser-forget', String(key)),
+    // Cookie imports, only in the app: sources and a two-step pick/harvest → preview → apply.
+    importSources: () => ipcRenderer.invoke('ds-bot:browser-import-sources'),
+    importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
+    importLive: (source, close) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true),
+    importApply: (key, pending) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending)),
+    importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', String(pending)),
+    onOpenRequested(lease, listener) {
+      const id = String(lease)
+      let set = listeners.get(id)
+      if (set === undefined) { set = new Set(); listeners.set(id, set) }
+      set.add(listener)
+      return () => {
+        set.delete(listener)
+        if (set.size === 0 && listeners.get(id) === set) listeners.delete(id)
+      }
+    },
+  }
+}
+
+function updatesBridge() {
+  const listeners = new Set()
+  ipcRenderer.on('ds-bot:app-update-changed', (_event, state) => {
+    for (const listener of [...listeners]) {
+      try { listener(state) } catch (error) { console.error('DeepSeek Bot: an update state handler failed', error) }
+    }
+  })
+  return {
+    state: () => ipcRenderer.invoke('ds-bot:app-update-state'),
+    check: () => ipcRenderer.invoke('ds-bot:app-update-check'),
+    install: () => ipcRenderer.invoke('ds-bot:app-update-install'),
+    open: () => ipcRenderer.invoke('ds-bot:app-update-open'),
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+  }
 }
 
 function frameless(height, mica) {

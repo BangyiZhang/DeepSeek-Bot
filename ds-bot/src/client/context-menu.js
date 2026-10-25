@@ -4,6 +4,7 @@ import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
 import { GearIcon, PinIcon, UnreadIcon, PencilIcon, StarLineIcon, CopyIcon, HideIcon, TrashIcon, DuplicateIcon } from './icons.js'
 import { useEscape } from './overlay-hooks.js'
+import { useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
 export function ContextMenu({ menu, roster, actions, leaving = false }) {
@@ -16,13 +17,14 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
   const ref = useRef(null)
   useFocusScope(ref, !leaving, { menu: true, close: () => actions.closeMenu() })
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
+  const tick = useViewport()
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
     if (!box) return
     const left = Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8))
-    const top = Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8))
+    const top = Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8))
     setPlace({ left, top, '--bt-origin': `${menu.x - left}px ${menu.y - top}px` })
-  }, [menu.x, menu.y])
+  }, [menu.x, menu.y, tick])
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   const bot = roster.byId[menu.id]
   const room = roster.roomsById[menu.id]
@@ -65,13 +67,14 @@ function AgentMenu({ menu, roster, actions, leaving }) {
   const ref = useRef(null)
   useFocusScope(ref, !leaving, { menu: true, close: () => actions.closeMenu() })
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
+  const tick = useViewport()
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
     if (!box) return
     const left = Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8))
-    const top = Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8))
+    const top = Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8))
     setPlace({ left, top, '--bt-origin': `${menu.x - left}px ${menu.y - top}px` })
-  }, [menu.x, menu.y])
+  }, [menu.x, menu.y, tick])
   const agent = roster.agentsById[menu.kind === 'agent' ? menu.id : menu.agentId]
   if (agent === undefined) return null
   const groups = menu.kind === 'agent'

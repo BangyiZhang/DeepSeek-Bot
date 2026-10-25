@@ -8,7 +8,7 @@ import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE } from './motion.js'
+import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
 
@@ -35,6 +35,8 @@ const useGroupWork = (useWork, pick) => (useWork ? useWork(work => JSON.stringif
 const workKeys = text => JSON.parse(text)
 const doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching })
 const workLine = (lead, doing, more) => h(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ''}`)
+// The row already names the Bot; its own-chat preview is just what it is doing.
+const doingLine = doing => h(Shimmer, null, `${workPhrase(doing)}…`)
 // The Bots and groups a Bot waits for (handoffs.js), by the names they have now.
 const waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map(id => roster.byId[id]?.name), ...(waits?.rooms ?? []).map(id => roster.roomsById[id]?.name)].filter(Boolean)
@@ -58,6 +60,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const groups = workKeys(useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
+  // A Bot running in its own chat previews what it is doing, like a group's row.
+  const runningLine = running && doing ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const waits = workKeys(useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null')
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
@@ -85,9 +89,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
-    awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
-      : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
-        : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
+    runningLine ? h('span', { className: 'bt-row-preview' }, runningLine)
+      : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
+        : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
+          : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
@@ -342,13 +347,17 @@ function UpdateButton({ useUpdate, actions }) {
   const dsh = update?.dsh
   const dshPhase = dsh?.phase ?? 'idle'
   const dshRow = showsDshRow(dsh, update?.app)
-  if (!update?.available && !dshRow && phase === 'idle' && dshPhase === 'idle') return null
-  const cloudPhase = phase === 'installing' || dshPhase === 'installing' ? 'installing' : phase !== 'idle' ? phase : dshPhase
-  const toggle = () => {
+  // Hooks first: an update that turns visible after the sidebar mounted would
+  // otherwise add hooks on a later render and crash the slot.
+  const tick = useViewport()
+  useLayoutEffect(() => {
+    if (!open) return
     const rect = button.current?.getBoundingClientRect()
     if (rect) setBox({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 288)), top: rect.bottom + 6 })
-    setOpen(value => !value)
-  }
+  }, [open, tick])
+  if (!update?.available && !dshRow && phase === 'idle' && dshPhase === 'idle') return null
+  const cloudPhase = phase === 'installing' || dshPhase === 'installing' ? 'installing' : phase !== 'idle' ? phase : dshPhase
+  const toggle = () => setOpen(value => !value)
   const start = () => {
     setError('')
     void actions.installUpdate().catch(failure => setError(hostText(failure?.message ?? String(failure))))
@@ -360,6 +369,7 @@ function UpdateButton({ useUpdate, actions }) {
   const label = phase === 'installing' ? t('Updating DS Bot…')
     : dshPhase === 'installing' ? t('Updating DSH…')
       : phase === 'installed' ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest })
+        : phase === 'updated' ? t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
         : dshPhase === 'installed' ? t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
           : update?.available ? t('DS Bot {version} is available', { version: update.latest })
             : t('DSH {version} is available', { version: dsh?.verified })
@@ -374,17 +384,18 @@ function UpdateButton({ useUpdate, actions }) {
     h('button', {
       ref: button, type: 'button', className: 'bt-round bt-update', 'data-phase': cloudPhase, 'aria-label': label, title: label,
       'aria-haspopup': 'dialog', 'aria-expanded': open, onClick: toggle,
-    }, h(CloudDownloadIcon, { done: phase === 'installed' }), phase === 'failed' || dshPhase === 'failed' ? h('span', { className: 'bt-update-dot', 'aria-hidden': true }) : null),
+    }, h(CloudDownloadIcon, { done: phase === 'installed' || phase === 'updated' }), phase === 'failed' || dshPhase === 'failed' ? h('span', { className: 'bt-update-dot', 'aria-hidden': true }) : null),
     open && box ? createPortal(h('div', { className: 'bt-update-pop', role: 'dialog', 'aria-label': update?.available || phase !== 'idle' ? t('DS Bot update') : t('DSH update'), style: box },
       update?.available || phase !== 'idle' ? h(Fragment, null,
-        h('div', { className: 'bt-update-title' }, phase === 'installed' ? t('Update installed') : t('DS Bot {version}', { version: update.latest })),
+        h('div', { className: 'bt-update-title' }, phase === 'installed' || phase === 'updated' ? t('Update installed') : t('DS Bot {version}', { version: update.latest })),
         h('div', { className: 'bt-update-text' }, phase === 'installed'
           ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
-          : t('You have {version}.', { version: update.current })),
+          : phase === 'updated' ? t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
+            : t('You have {version}.', { version: update.current })),
         message ? h('div', { className: 'bt-update-error', role: 'alert' }, t('The update did not finish: {reason}', { reason: message })) : null,
         h('div', { className: 'bt-update-actions' },
           update.notesUrl ? h('a', { className: 'bt-update-notes', href: update.notesUrl, target: '_blank', rel: 'noopener noreferrer' }, t("What's new")) : null,
-          phase === 'installed' ? null : h('button', {
+          phase === 'installed' || phase === 'updated' ? null : h('button', {
             type: 'button', className: 'bt-update-go', disabled: phase === 'installing', onClick: start,
           }, phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update')))) : null,
       dshRow ? h('div', { className: 'bt-update-dsh' },
@@ -549,11 +560,13 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
       setBusy(false)
     }
   }
-  const toggle = () => {
+  const tick = useViewport()
+  const anchor = () => {
     const rect = button.current?.getBoundingClientRect()
-    if (rect) setBox({ left: rect.left, bottom: window.innerHeight - rect.top + 5 })
-    setOpen(value => !value)
+    if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })
   }
+  useLayoutEffect(() => { if (open) anchor() }, [open, tick])
+  const toggle = () => { if (!open) anchor(); setOpen(value => !value) }
   // Closing the menu drops a half-finished sign-out confirm with it.
   useEffect(() => {
     if (open) return
