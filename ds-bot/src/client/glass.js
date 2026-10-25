@@ -48,6 +48,7 @@ export const GLASS_SHELL_CSS = `
 
 export const GLASS_CONVERSATION_CSS = `
 [data-composer-card]{corner-shape:round}
+[class*="_activity"]:has([class*="triggerAnchor"]){display:none!important}
 [data-composer-card] :is(.bt-plus,.bt-mic,.bt-voice,button[class*="_primary"]){corner-shape:round}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){corner-shape:superellipse(1.25)}
 @supports (backdrop-filter:blur(12px)){

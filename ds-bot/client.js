@@ -53,6 +53,11 @@ var ZH = {
   "Refresh": "刷新",
   "Durable tasks": "持久任务",
   "Durable task": "持久任务",
+  "Pausing after current step": "当前步骤完成后暂停",
+  "Pausing task": "正在暂停任务",
+  "Resuming task": "正在继续任务",
+  "The current step will finish and save before pausing.": "当前步骤会先完成并保存，然后暂停。",
+  "Saved progress is kept. Say “continue” in this Bot chat to resume.": "已保留保存的进度。在此 Bot 聊天中说“继续”即可恢复。",
   "Stopping task": "正在停止任务",
   "Stopping could not be confirmed. This task may still be running. Check its work chat.": "无法确认是否已停止，任务可能仍在运行，请查看执行会话。",
   "View task": "查看任务",
@@ -2185,6 +2190,7 @@ var GLASS_SHELL_CSS = `
 `;
 var GLASS_CONVERSATION_CSS = `
 [data-composer-card]{corner-shape:round}
+[class*="_activity"]:has([class*="triggerAnchor"]){display:none!important}
 [data-composer-card] :is(.bt-plus,.bt-mic,.bt-voice,button[class*="_primary"]){corner-shape:round}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){corner-shape:superellipse(1.25)}
 @supports (backdrop-filter:blur(12px)){
@@ -7147,13 +7153,15 @@ function durableTaskSummary(job) {
   if (job.cancelling) return { kind: "cancelling", label: "Stopping task", count, completed, results };
   if (state.outcome?.status === "aborted" || job.cancellation?.status === "stopped") return { kind: "cancelled", label: "Cancelled", count, completed, results };
   if (job.cancellation?.status === "needs_reconciliation") return { kind: "review", label: "Needs review", count, completed, results, stopUnconfirmed: true };
-  if (state.status === "preparing") return { kind: "preparing", label: "Preparing task", count, completed: 0, results };
   if (state.status === "terminal") {
     const outcome = state.outcome ?? {};
     if (outcome.status === "completed") return { kind: "completed", label: "Completed", count, completed: count, results };
     const review = ["NEEDS_RECONCILIATION", "CANCEL_UNCONFIRMED"].includes(outcome.error?.code);
     return { kind: review ? "review" : "failed", label: review ? "Needs review" : "Failed", count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === "CANCEL_UNCONFIRMED" };
   }
+  if (job.paused) return { kind: "paused", label: "Paused", count, completed, results };
+  if (job.pauseRequested) return { kind: "pausing", label: "Pausing after current step", count, completed, results };
+  if (state.status === "preparing") return { kind: "preparing", label: "Preparing task", count, completed: 0, results };
   if (state.status === "missing") return { kind: "review", label: "Needs review", count, completed, results };
   return { kind: "working", label: state.status === "waiting" ? "Waiting" : "Working", count, completed, results };
 }
@@ -7235,6 +7243,7 @@ function Job({ job, actions, refresh, readOnly }) {
       (0, import_react12.createElement)("span", { className: "bt-durable-status", "data-kind": summary.kind }, t(summary.label))
     ),
     (0, import_react12.createElement)("div", { className: "bt-set-hint" }, t("{done} of {count} steps saved", { done: summary.completed, count: summary.count })),
+    summary.kind === "pausing" ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("The current step will finish and save before pausing.")) : summary.kind === "paused" && job.origin ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("Saved progress is kept. Say “continue” in this Bot chat to resume.")) : null,
     (0, import_react12.createElement)("progress", { max: Math.max(summary.count, 1), value: summary.completed, "aria-label": t("Saved progress") }),
     error ? (0, import_react12.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
     summary.kind === "preparing" ? (0, import_react12.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-durable-session", disabled: resuming || readOnly, onClick: resume }, t(resuming ? "Preparing…" : "Resume setup")) : null,
@@ -7514,6 +7523,7 @@ function DurableChatTask({ admission, title, stepCount, actions }) {
       (0, import_react13.createElement)("progress", { max: Math.max(summary.count, 1), value: summary.completed, "aria-label": t("Saved progress") }),
       (0, import_react13.createElement)("span", null, t("{done} of {count} steps saved", { done: summary.completed, count: summary.count }))
     ) : null,
+    summary?.kind === "pausing" ? (0, import_react13.createElement)("p", null, t("The current step will finish and save before pausing.")) : summary?.kind === "paused" ? (0, import_react13.createElement)("p", null, t("Saved progress is kept. Say “continue” in this Bot chat to resume.")) : null,
     reportNeedsReview ? (0, import_react13.createElement)("p", null, t("The result is saved. Check task details because its return to this chat could not be confirmed.")) : null,
     summary?.kind === "review" ? (0, import_react13.createElement)("p", null, t(summary.stopUnconfirmed ? "Stopping could not be confirmed. This task may still be running. Check its work chat." : "Execution stopped at an uncertain step. Check the work chat before repeating an action.")) : null,
     error ? (0, import_react13.createElement)("p", { className: "bt-error", role: "status" }, hostText(error)) : null,
@@ -8256,6 +8266,10 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t("Checking the team"), state: "searching" };
     case "create_durable_task":
       return { label: t("Starting a durable task"), state: "working" };
+    case "pause_durable_task":
+      return { label: t("Pausing task"), state: "working" };
+    case "resume_durable_task":
+      return { label: t("Resuming task"), state: "working" };
     case "cancel_durable_task":
       return { label: t("Stopping task"), state: "working" };
     case "get_durable_task":
@@ -9894,18 +9908,24 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
     }
   }, [quote?.token]);
   if (sessionId === void 0) return null;
-  const pluginMic = actions.speech() !== void 0;
   return (0, import_react18.createElement)(
     import_react18.Fragment,
     null,
-    pluginMic ? null : (0, import_react18.createElement)("button", {
+    (0, import_react18.createElement)("button", {
       type: "button",
       className: "bt-mic",
       "aria-label": dictation.listening ? t("Stop dictation") : t("Dictate"),
       "aria-pressed": dictation.listening,
       title: dictation.listening ? t("Stop dictation") : t("Dictate"),
       onMouseDown: keepComposerFocus,
-      onClick: () => dictation.listening ? dictation.stop() : dictation.start()
+      onClick: () => {
+        const trigger = document.querySelector("button[class*='trigger']");
+        if (trigger) {
+          trigger.click();
+          return;
+        }
+        dictation.listening ? dictation.stop() : dictation.start();
+      }
     }, (0, import_react18.createElement)(MicIcon)),
     (0, import_react18.createElement)("button", {
       type: "button",
@@ -13582,7 +13602,12 @@ function VoiceMode({ sessionId, roster, actions, useSessions, useSessionStatus }
       return;
     }
     const utterance = new SpeechSynthesisUtterance(spoken);
-    utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
+    const isZh = /[\u3400-\u9fff]/.test(spoken);
+    utterance.lang = isZh ? "zh-CN" : "en-US";
+    const voices = window.speechSynthesis.getVoices();
+    const chinese = voices.filter((voice) => (voice.lang ?? "").toLowerCase().replace("_", "-").startsWith("zh"));
+    const selected = isZh ? chinese.find((voice) => voice.name.includes("Tingting")) ?? chinese.find((voice) => voice.name.includes("Meijia")) ?? chinese.find((voice) => !/Eddy|Flo|Grandma|Grandpa|Rocko|Sandy|Shelley|Reed/i.test(voice.name)) ?? chinese[0] : voices.find((voice) => voice.lang.toLowerCase().startsWith("en"));
+    if (selected) utterance.voice = selected;
     utterance.onend = () => setPhase((current) => current === "speaking" ? "listening" : current);
     utterance.onerror = utterance.onend;
     setPhase("speaking");

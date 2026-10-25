@@ -108,6 +108,8 @@ This fork includes an opt-in Pi Durable 1.4 task runtime alongside DSH. DSH stil
 
 Say “stop” in that Bot's chat to cancel its current task. If more than one task is active, the Bot asks which one. The task is marked cancelled only after its execution stops; completed actions are not rolled back, and an unconfirmed stop stays visible for review.
 
+Say “pause for now” to save the current admitted step and wait before the next one. Say “continue” to resume the same task with its saved results. Pauses survive app restarts; running tools are allowed to finish rather than forcibly frozen. Completed, cancelled, or uncertain work is never automatically replayed.
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

@@ -21,6 +21,14 @@ export function install(rt) {
     parameters: { key: { type: 'string', description: 'Existing task key from this chat. Omit only when exactly one unfinished task exists.' } },
     async execute(args, exec) { return JSON.stringify(await rt.cancelDurableFromBot(args, exec)) },
   })
+  for (const action of ['pause', 'resume']) register({
+    name: `${action}_durable_task`,
+    description: action === 'pause'
+      ? 'Pause this Bot chat\'s durable task at its next saved step boundary when the user asks to pause or wait. The current admitted step finishes and saves first; do not claim a running tool is frozen. No later step starts while paused, including after restart. Use the existing task key when specified, or omit it only for a single matching task. Never create a new task to pause work.'
+      : 'Continue this Bot chat\'s paused durable task when the user asks to continue or resume. Reuse the existing task and saved outputs; do not recreate it or repeat completed steps. This can also withdraw a pending pause. It cannot restart a cancelled, completed, failed or uncertain task. Omit key only for one paused task; ask which task when ambiguous.',
+    parameters: { key: { type: 'string', description: 'Existing task key from this Bot chat. Omit only when a single matching task exists.' } },
+    async execute(args, exec) { return JSON.stringify(await rt[action === 'pause' ? 'pauseDurableFromBot' : 'resumeDurableFromBot'](args, exec)) },
+  })
   register({
     name: 'get_durable_task',
     description: 'Read a saved task belonging to this Bot\'s own chat. Use when the user asks about its progress or when checking a task after a restart; do not repeatedly poll. It reports saved outputs and any need for manual review. It does not restart or retry the work.',
@@ -39,6 +47,7 @@ export function install(rt) {
       return JSON.stringify({ ...value, total: value.jobs.length, jobs: value.jobs.slice(-50).reverse().map(job => ({
         key: job.key, title: job.title, stepCount: job.stepCount, status: job.state.status,
         completed: job.state.status === 'terminal' ? job.state.outcome.status === 'completed' ? job.stepCount : job.state.outcome.error?.completed ?? job.state.outcome.result?.length ?? 0 : job.state.checkpoint?.step ?? 0,
+        ...(job.pauseRequested ? { pauseRequested: true, paused: job.paused } : {}),
         ...(job.cancelling ? { cancelling: true } : {}), ...(job.cancellation ? { cancellation: job.cancellation.status } : {}),
         ...(job.state.status === 'terminal' ? { outcome: job.state.outcome.status } : {}),
       })) })

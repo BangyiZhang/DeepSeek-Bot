@@ -74,13 +74,15 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
     }
   }, [quote?.token])
   if (sessionId === undefined) return null
-  // With the Voice Input plugin on, its own microphone sits in this composer.
-  const pluginMic = actions.speech() !== undefined
   return h(Fragment, null,
-    pluginMic ? null : h('button', {
+    h('button', {
       type: 'button', className: 'bt-mic', 'aria-label': dictation.listening ? t('Stop dictation') : t('Dictate'),
       'aria-pressed': dictation.listening, title: dictation.listening ? t('Stop dictation') : t('Dictate'),
-      onMouseDown: keepComposerFocus, onClick: () => (dictation.listening ? dictation.stop() : dictation.start()),
+      onMouseDown: keepComposerFocus, onClick: () => {
+        const trigger = document.querySelector("button[class*='trigger']")
+        if (trigger) { trigger.click(); return }
+        dictation.listening ? dictation.stop() : dictation.start()
+      },
     }, h(MicIcon)),
     h('button', {
       type: 'button', className: 'bt-voice', 'aria-label': t('Start voice chat'), title: t('Voice chat'),

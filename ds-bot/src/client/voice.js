@@ -189,7 +189,15 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     setHeard('')
     if (!window.speechSynthesis || !spoken) { setPhase('listening'); return }
     const utterance = new SpeechSynthesisUtterance(spoken)
-    utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? 'zh-CN' : 'en-US'
+    const isZh = /[\u3400-\u9fff]/.test(spoken)
+    utterance.lang = isZh ? 'zh-CN' : 'en-US'
+    const voices = window.speechSynthesis.getVoices()
+    const chinese = voices.filter(voice => (voice.lang ?? '').toLowerCase().replace('_', '-').startsWith('zh'))
+    const selected = isZh
+      ? chinese.find(voice => voice.name.includes('Tingting')) ?? chinese.find(voice => voice.name.includes('Meijia'))
+        ?? chinese.find(voice => !/Eddy|Flo|Grandma|Grandpa|Rocko|Sandy|Shelley|Reed/i.test(voice.name)) ?? chinese[0]
+      : voices.find(voice => voice.lang.toLowerCase().startsWith('en'))
+    if (selected) utterance.voice = selected
     utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
     utterance.onerror = utterance.onend
     setPhase('speaking')

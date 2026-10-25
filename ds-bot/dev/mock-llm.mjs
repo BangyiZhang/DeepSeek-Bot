@@ -199,7 +199,8 @@ function decide(body) {
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
     const durableChatStage = /Durable chat stage 1 ([a-zA-Z0-9-]+)/.exec(durableInput ?? '')
-    if (durableChatStage && ((used?.name === 'read' && used.input?.file_path === 'chat-facts.txt')
+    if (durableChatStage && ((durableChatStage[1] === 'pause' && (used?.name === 'bash' || used?.name === 'run_code'))
+      || (used?.name === 'read' && used.input?.file_path === 'chat-facts.txt')
       || (used?.name === 'run_code' && used.input?.code?.includes("tools.read({ file_path: 'chat-facts.txt' })")))) {
       return [text(`Durable chat stage 1 ${durableChatStage[1]} finished; owner context ${(system + '\n' + durableInput).includes('DURABLE_CHAT_OWNER_CONTEXT') ? 'present' : 'missing'}; earlier result absent; team tools ${tools.has('list_bots') || tools.has('create_durable_task') ? 'present' : 'absent'}; fixture ${!result.is_error && resultText.includes('DURABLE_CHAT_FIXTURE_FACT') ? 'read' : 'not read'}.`)]
     }
@@ -241,6 +242,8 @@ function decide(body) {
     }
     switch (used?.name) {
       case 'create_durable_task': return [text(result.is_error ? `Durable chat creation refused: ${resultText}` : `Durable chat task accepted: ${resultText}`)]
+      case 'pause_durable_task': return [text(`Durable chat pause: ${resultText}`)]
+      case 'resume_durable_task': return [text(`Durable chat continue: ${resultText}`)]
       case 'cancel_durable_task': return [text(`Durable chat cancel: ${resultText}`)]
       case 'list_durable_tasks':
       case 'get_durable_task': return [text(`Durable chat query: ${resultText}`)]
@@ -592,12 +595,21 @@ function decide(body) {
   if (/^Durable chat list$/i.test(durableCommand) && tools.has('list_durable_tasks')) return [tool('list_durable_tasks', {})]
   const cancelCommand = /^Durable chat cancel(?: ([a-zA-Z0-9_.-]+))?$/i.exec(durableCommand)
   if ((cancelCommand || durableCommand === '停止') && tools.has('cancel_durable_task')) return [tool('cancel_durable_task', cancelCommand?.[1] ? { key: cancelCommand[1] } : {})]
+  const pauseCommand = /^Durable chat pause(?: ([a-zA-Z0-9_.-]+))?$/i.exec(durableCommand)
+  if ((pauseCommand || durableCommand === '先暂停') && tools.has('pause_durable_task')) return [tool('pause_durable_task', pauseCommand?.[1] ? { key: pauseCommand[1] } : {})]
+  const continueCommand = /^Durable chat continue(?: ([a-zA-Z0-9_.-]+))?$/i.exec(durableCommand)
+  if ((continueCommand || durableCommand === '继续') && tools.has('resume_durable_task')) return [tool('resume_durable_task', continueCommand?.[1] ? { key: continueCommand[1] } : {})]
   const durableResume = /^Durable chat resume ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableResume && tools.has('create_durable_task')) return [tool('create_durable_task', { key: durableResume[1] })]
   const durableGet = /^Durable chat get ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableGet && tools.has('get_durable_task')) return [tool('get_durable_task', { key: durableGet[1] })]
   if (durableRequest) {
     const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText)
+    if (chatStage?.[1] === '1' && chatStage[2] === 'pause') {
+      const args = { command: 'printf started >> pause-started.txt; sleep 8; printf finished > pause-finished.txt', description: 'Finish the admitted isolated step before pausing' }
+      if (tools.has('bash')) return [tool('bash', args)]
+      if (tools.has('run_code')) return [tool('run_code', { description: args.description, code: `console.log(await tools.bash(${JSON.stringify(args)}))` })]
+    }
     if (chatStage?.[1] === '1' && chatStage[2] === 'cancel') {
       const args = { command: 'printf started > cancel-started.txt; sleep 30; printf finished > cancel-finished.txt', description: 'Run the cancellable isolated fixture' }
       if (tools.has('bash')) return [tool('bash', args)]

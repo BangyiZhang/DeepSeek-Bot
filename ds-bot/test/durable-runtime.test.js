@@ -4,7 +4,7 @@ import {mkdtemp,rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {openDurableRuntime} from '../src/host/durable/runtime.js'
-async function bench(t,executor,options={}){const home=await mkdtemp(join(tmpdir(),'dsb-durable-'));const config={database:join(home,'tasks.sqlite'),executor,pollMs:5,...options};let runtime=await openDurableRuntime(config);t.after(async()=>{await runtime.close();await rm(home,{recursive:true,force:true})});return{get runtime(){return runtime},async reopen(){await runtime.close();runtime=await openDurableRuntime(config)}}}
+async function bench(t,executor,options={}){const home=await mkdtemp(join(tmpdir(),'dsb-durable-'));const config={database:join(home,'tasks.sqlite'),executor,pollMs:5,...options};let runtime=await openDurableRuntime(config);t.after(async()=>{await runtime.close();await rm(home,{recursive:true,force:true})});return{database:config.database,get runtime(){return runtime},async reopen(){await runtime.close();runtime=await openDurableRuntime(config)}}}
 const job=(key='job',sessionId='session')=>({key,steps:[{sessionId,prompt:'read the test fixture'}]})
 test('native Pi abort stops DSH once, preserves cancellation across reopen, and never runs the next stage', async t => {
   let sends = 0
@@ -162,4 +162,108 @@ test('an execution-scope failure retains completed stages without leaking unexpe
   const failed = await unknown.runtime.wait('job')
   assert.equal(failed.state.outcome.error.code, 'NEEDS_RECONCILIATION')
   assert.doesNotMatch(failed.state.outcome.error.message, /Private adapter diagnostics/)
+})
+
+async function untilTask(runtime, key, predicate) {
+  const end = Date.now() + 5000
+  while (Date.now() < end) {
+    const task = await runtime.get(key)
+    if (predicate(task)) return task
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  assert.fail('Expected durable task state')
+}
+test('pause saves the admitted step, parks durably without polling DSH, and resumes only remaining steps', async t => {
+  let firstDone = false
+  let inspections = 0
+  const sent = new Set()
+  const b = await bench(t, {
+    inspect: async i => { inspections += 1; return { status: sent.has(i.requestId) ? i.sessionId === 'first' && !firstDone ? 'running' : 'completed' : 'absent', result: `Saved ${i.sessionId}` } },
+    dispatch: async i => { sent.add(i.requestId) }, stop: async () => assert.fail('Pause must not cancel work'),
+  })
+  await b.runtime.submit({ key: 'pause', steps: ['first', 'second'].map(sessionId => ({ sessionId, prompt: 'Do work' })) })
+  await untilTask(b.runtime, 'pause', () => sent.size === 1)
+  await b.runtime.pause('pause')
+  assert.notEqual((await b.runtime.get('pause')).state.status, 'waiting')
+  firstDone = true
+  const paused = await untilTask(b.runtime, 'pause', r => r.state.status === 'waiting')
+  assert.deepEqual(paused.state.checkpoint.results, ['Saved first'])
+  assert.equal(paused.state.checkpoint.step, 1)
+  assert.equal(sent.size, 1)
+  const reads = inspections
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(inspections, reads, 'A parked task must not poll or dispatch DSH')
+  await b.reopen()
+  assert.equal((await b.runtime.get('pause')).state.status, 'waiting')
+  assert.equal((await b.runtime.blockingSessions()).has('second'), true)
+  await b.runtime.resume('pause')
+  await b.runtime.resume('pause')
+  assert.deepEqual((await b.runtime.wait('pause')).state.outcome.result, ['Saved first', 'Saved second'])
+  assert.equal(sent.size, 2)
+})
+test('a pause request during admission allows the in-flight step to settle without replay after reopen', async t => {
+  let release
+  let entered = false
+  let sent = 0
+  const b = await bench(t, { inspect: async i => ({ status: sent && i.sessionId === 'first' ? 'completed' : 'absent', result: 'saved' }),
+    dispatch: async () => { entered = true; await new Promise(resolve => { release = resolve }); sent += 1 } })
+  await b.runtime.submit({ key: 'pause', steps: ['first', 'second'].map(sessionId => ({ sessionId, prompt: 'Work' })) })
+  await untilTask(b.runtime, 'pause', () => entered)
+  await b.runtime.pause('pause')
+  release()
+  await untilTask(b.runtime, 'pause', r => r.state.status === 'waiting')
+  await b.reopen()
+  assert.equal((await b.runtime.get('pause')).state.checkpoint.step, 1)
+  assert.equal(sent, 1)
+})
+test('pending pause can be withdrawn and cancelled paused work never resumes', async t => {
+  let done = false
+  const b = await bench(t, { inspect: async i => ({ status: i.sessionId === 'first' ? done ? 'completed' : 'running' : 'absent', result: 'saved' }), dispatch: async () => assert.fail('Not while paused'), stop: async () => ({ status: 'stopped' }) })
+  await b.runtime.submit({ key: 'pause', steps: ['first', 'second'].map(sessionId => ({ sessionId, prompt: 'Work' })) })
+  await b.runtime.pause('pause')
+  await b.runtime.resume('pause')
+  assert.equal((await b.runtime.get('pause')).pauseRequested, false)
+  await b.runtime.pause('pause')
+  done = true
+  await untilTask(b.runtime, 'pause', r => r.state.status === 'waiting')
+  await b.runtime.cancel('pause')
+  assert.equal((await b.runtime.wait('pause')).state.outcome.status, 'aborted')
+  await assert.rejects(b.runtime.resume('pause'), /unfinished/)
+  await b.reopen()
+  assert.equal((await b.runtime.get('pause')).state.outcome.status, 'aborted')
+})
+test('paused preparation survives restart and resumes the same saved definition', async t => {
+  const b = await bench(t, { inspect: async () => ({ status: 'completed', result: 'done' }), dispatch: async () => assert.fail('Already done') })
+  await b.runtime.prepareCreate({ key: 'draft', title: 'Draft', prompts: ['Work'], model: 'test/model' })
+  await b.runtime.pause('draft')
+  await b.reopen()
+  assert.equal((await b.runtime.getCreate('draft')).pauseRequested, true)
+  await b.runtime.resume('draft')
+  assert.equal((await b.runtime.getCreate('draft')).pauseRequested, false)
+  await b.runtime.submit(job('draft'))
+  assert.equal((await b.runtime.wait('draft')).state.outcome.status, 'completed')
+  await assert.rejects(b.runtime.pause('draft'), /unfinished/)
+  await assert.rejects(b.runtime.pause('missing'), /Unknown/)
+})
+
+test('restart repairs a persisted continue whose gate release was interrupted', async t => {
+  const b = await bench(t, { inspect: async () => ({ status: 'absent' }), dispatch: async () => assert.fail('Paused fixture must not execute') })
+  await b.runtime.prepareCreate({ key: 'repair', title: 'Repair', prompts: ['Work'], model: 'test/model' })
+  await b.runtime.pause('repair')
+  await b.runtime.submit(job('repair'))
+  await untilTask(b.runtime, 'repair', r => r.state.status === 'waiting')
+  await b.runtime.close()
+  const [{ Harness, createRegistry, defineDoc }, { createModels }, { openNodeSqliteStorage }, { BACKGROUND_CONTEXT: ctx }] = await Promise.all([
+    import('@earendil-works/pi-durable'), import('@earendil-works/pi-ai/models'), import('@earendil-works/pi-durable/storage/sqlite/node'), import('@earendil-works/chord/context'),
+  ])
+  // Reproduce the committed half of continue with public document transactions:
+  // its flag is cleared but the process dies before abortTask releases the gate.
+  const h = await Harness.open(await openNodeSqliteStorage(b.database), { models: createModels(), registry: createRegistry() }, ctx)
+  const root = await h.root(ctx)
+  const Jobs = defineDoc({ kind: 'ds-bot.durable.jobs', version: 1, scope: 'session', history: 'latest', fork: 'initial', initial: () => ({ items: {} }), checkpointWhen: () => true })
+  await root.commit(async tx => { (await tx.doc(Jobs)).items.repair.pauseRequested = false }, ctx)
+  await h.close(ctx)
+  await b.reopen()
+  const released = await untilTask(b.runtime, 'repair', r => r.state.status !== 'waiting')
+  assert.equal(released.pauseRequested, false)
 })

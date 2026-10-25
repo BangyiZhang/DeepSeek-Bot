@@ -16,13 +16,15 @@ export function durableTaskSummary(job) {
   if (job.cancelling) return { kind: 'cancelling', label: 'Stopping task', count, completed, results }
   if (state.outcome?.status === 'aborted' || job.cancellation?.status === 'stopped') return { kind: 'cancelled', label: 'Cancelled', count, completed, results }
   if (job.cancellation?.status === 'needs_reconciliation') return { kind: 'review', label: 'Needs review', count, completed, results, stopUnconfirmed: true }
-  if (state.status === 'preparing') return { kind: 'preparing', label: 'Preparing task', count, completed: 0, results }
   if (state.status === 'terminal') {
     const outcome = state.outcome ?? {}
     if (outcome.status === 'completed') return { kind: 'completed', label: 'Completed', count, completed: count, results }
     const review = ['NEEDS_RECONCILIATION', 'CANCEL_UNCONFIRMED'].includes(outcome.error?.code)
     return { kind: review ? 'review' : 'failed', label: review ? 'Needs review' : 'Failed', count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === 'CANCEL_UNCONFIRMED' }
   }
+  if (job.paused) return { kind: 'paused', label: 'Paused', count, completed, results }
+  if (job.pauseRequested) return { kind: 'pausing', label: 'Pausing after current step', count, completed, results }
+  if (state.status === 'preparing') return { kind: 'preparing', label: 'Preparing task', count, completed: 0, results }
   if (state.status === 'missing') return { kind: 'review', label: 'Needs review', count, completed, results }
   return { kind: 'working', label: state.status === 'waiting' ? 'Waiting' : 'Working', count, completed, results }
 }
@@ -92,6 +94,7 @@ function Job({ job, actions, refresh, readOnly }) {
       h('h4', { className: 'bt-durable-job-name' }, job.title || t('Untitled task')),
       h('span', { className: 'bt-durable-status', 'data-kind': summary.kind }, t(summary.label))),
     h('div', { className: 'bt-set-hint' }, t('{done} of {count} steps saved', { done: summary.completed, count: summary.count })),
+    summary.kind === 'pausing' ? h('p', { className: 'bt-durable-review' }, t('The current step will finish and save before pausing.')) : summary.kind === 'paused' && job.origin ? h('p', { className: 'bt-durable-review' }, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     summary.kind === 'preparing' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session', disabled: resuming || readOnly, onClick: resume }, t(resuming ? 'Preparing…' : 'Resume setup')) : null,

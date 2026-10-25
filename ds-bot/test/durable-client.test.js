@@ -49,3 +49,15 @@ test('completed tasks expose all saved step results and a complete progress coun
   assert.equal(summary.completed, 2)
   assert.equal(summary.results, saved)
 })
+
+test('pause pending, saved pause, and terminal outcomes have distinct truthful labels', () => {
+  const checkpoint = { step: 1, results: ['saved'] }
+  const pending = durableTaskSummary({ pauseRequested: true, stepCount: 3, state: { status: 'sleeping', checkpoint } })
+  assert.equal(pending.label, 'Pausing after current step')
+  const paused = durableTaskSummary({ pauseRequested: true, paused: true, stepCount: 3, state: { status: 'waiting', checkpoint } })
+  assert.equal(paused.label, 'Paused')
+  assert.equal(paused.completed, 1)
+  assert.equal(paused.results[0], 'saved')
+  assert.equal(durableTaskSummary({ pauseRequested: true, state: { status: 'terminal', outcome: { status: 'completed', result: ['done'] } } }).label, 'Completed')
+  assert.equal(durableTaskSummary({ pauseRequested: true, state: { status: 'terminal', outcome: { status: 'aborted', result: [] } } }).label, 'Cancelled')
+})

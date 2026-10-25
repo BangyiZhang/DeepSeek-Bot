@@ -72,17 +72,39 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
   }
   const failureReason = (record, fallback) => record.reason === 'scope_changed'
     ? 'The original working folder, permission preset, or available tools changed; review this task before continuing.' : fallback
+  // A waiting workflow owns a durable gate. Resuming aborts only this gate;
+  // completed DSH work is never cancelled or replayed to implement a pause.
+  const Pause = defineTask({
+    name: 'ds-bot.durable.pause', version: 1,
+    initial: () => ({ phase: 'hold' }),
+    phases: { hold: (task, runtime, ctx) => runtime.sleepUntil(runtime.now() + 365 * 86400000, task.state.checkpoint, ctx) },
+    abort: (_task, runtime, ctx) => runtime.commit(() => ({ status: 'terminal', outcome: { status: 'aborted' } }), ctx),
+  })
+  const pauseRequested = async task => (await harness.snapshot(Jobs, context))?.items?.[task.input.key]?.pauseRequested === true
+  const park = (task, runtime, ctx) => runtime.commit(async tx => {
+    const jobs = await tx.doc(Jobs)
+    const job = jobs.items[task.input.key]
+    const checkpoint = { ...task.state.checkpoint, phase: 'check', paused: false }
+    if (!job.pauseRequested) return { status: 'pending', checkpoint }
+    const gate = await tx.createTask(Pause, {}, { ownership: { kind: 'task', taskId: task.id } })
+    job.pauseGate = gate
+    return { status: 'waiting', checkpoint: { ...checkpoint, paused: true }, on: [gate], policy: 'allSettled' }
+  }, ctx)
   const Task = defineTask({
     name: 'ds-bot.durable.workflow', version: 1,
     initial: () => ({ phase: 'check', step: 0, results: [], sent: false }),
     phases: {
       check: stage(async (task, runtime, ctx) => {
+        if (task.state.checkpoint.paused && !await pauseRequested(task)) {
+          return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, paused: false } }), ctx)
+        }
         const input = inputFor(task)
         const record = await executor.inspect(input)
         if (record.reason === 'unmatched_activity') return observe(task, runtime, ctx)
         if (record.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
         if (record.status === 'completed') return finish(task, runtime, ctx, record.result ?? '')
         if (record.status === 'absent' && !task.state.checkpoint.sent) {
+          if (await pauseRequested(task)) return park(task, runtime, ctx)
           return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, phase: 'send' } }), ctx)
         }
         if (record.status === 'running') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
@@ -95,6 +117,7 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
         if (record.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
         if (record.status === 'completed') return finish(task, runtime, ctx, record.result ?? '')
         if (record.status === 'absent') {
+          if (await pauseRequested(task)) return park(task, runtime, ctx)
           const receipt = await executor.dispatch(input)
           if (receipt?.reason === 'unmatched_activity') return observe(task, runtime, ctx)
           if (receipt?.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
@@ -115,7 +138,7 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     },
   })
   const registry = createRegistry()
-  registry.install(defineExtension({ name: 'ds-bot-durable', tasks: [Task] }))
+  registry.install(defineExtension({ name: 'ds-bot-durable', tasks: [Task, Pause] }))
   const path = resolve(database)
   if (openedDatabases.has(path)) throw new Error('Durable storage already has a writer')
   const lease = homeLock(`${path}.lock`)
@@ -226,7 +249,7 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
       if (new Set(sessions).size !== sessions.length || Object.values(jobs.items).some(job => job.sessions?.some(id => sessions.includes(id))) || Object.entries(jobs.creates ?? {}).some(([draftKey, draft]) => draftKey !== key && draft.sessions.some(id => sessions.includes(id)))) throw new Error('Durable workflows require exclusive DSH sessions')
       if (Object.keys(jobs.items).length >= 1000) throw new Error('Durable prototype job limit reached')
       const created = await tx.createTask(Task, input, { ownership: { kind: 'conversation' }, background: true })
-      jobs.items[key] = { taskId: created, signature, sessions }
+      jobs.items[key] = { taskId: created, signature, sessions, ...(jobs.creates?.[key]?.pauseRequested ? { pauseRequested: true } : {}) }
       return created
     }, context)
     harness.resume()
@@ -260,16 +283,38 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
       draft.cancelled = true
     }, context)
   }
+  const setPaused = async (key, paused) => {
+    if (!validKey(key)) throw new Error('Invalid durable request key')
+    const gate = await root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const job = Object.hasOwn(jobs.items, key) ? jobs.items[key] : jobs.creates?.[key]
+      if (!job) throw new Error('Unknown durable task')
+      if (job.cancelled) throw new Error('A cancelled task cannot be paused or resumed')
+      if (job.taskId !== undefined) {
+        const record = await tx.task(job.taskId)
+        if (record.abortRequested || record.state.status === 'terminal') throw new Error('Only unfinished tasks can be paused or resumed; cancelled or failed work cannot be restarted')
+      }
+      job.pauseRequested = paused
+      return paused ? undefined : job.pauseGate
+    }, context)
+    if (gate !== undefined) await harness.abortTask(gate, context)
+    harness.resume()
+  }
+  // A crash can fall between clearing the request and releasing its gate.
+  // Repair that release before scheduling, using only Pi's public task API.
+  for (const job of Object.values((await harness.snapshot(Jobs, context))?.items ?? {})) {
+    if (job.pauseGate !== undefined && !job.pauseRequested) await harness.abortTask(job.pauseGate, context)
+  }
   harness.resume()
   return {
-    submit, cancel, prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
+    submit, cancel, pause: key => setPaused(key, true), resume: key => setPaused(key, false), prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
     async getNotification(key) { return (await getCreate(key))?.notification },
     async get(key) {
       const id = await taskId(key)
       if (id === undefined) return undefined
       const record = await harness.getTask(id, context)
-      const cancellation = (await harness.snapshot(Jobs, context))?.items?.[key]?.cancellation
-      return cancellation ? { ...record, cancellation } : record
+      const job = (await harness.snapshot(Jobs, context))?.items?.[key]
+      return { ...record, ...(job?.cancellation ? { cancellation: job.cancellation } : {}), pauseRequested: job?.pauseRequested === true }
     },
     async wait(key) { const id = await taskId(key); if (id === undefined) throw new Error('Unknown durable request'); return harness.waitForTask(id, context) },
     async list() { const jobs = await harness.snapshot(Jobs, context); return [...new Set([...Object.keys(jobs?.items ?? {}), ...Object.keys(jobs?.creates ?? {})])] },

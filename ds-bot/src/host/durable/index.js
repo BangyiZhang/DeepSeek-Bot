@@ -115,7 +115,7 @@ export function install(rt) {
       void runtime.list().then(async keys => {
         for (const key of keys) {
           const draft = await runtime.getCreate(key)
-          if (stopping || !draft?.origin || draft.cancelled || await runtime.get(key)) continue
+          if (stopping || !draft?.origin || draft.cancelled || draft.pauseRequested || await runtime.get(key)) continue
           await change(() => { writeCheck(); return create(runtime, { key }) })
         }
       }).catch(() => { if (!stopping) rt.warn('ds-bot: a durable chat task setup needs review') })
@@ -167,6 +167,7 @@ export function install(rt) {
       const stored = await tasks.getCreate(body.key)
       if (!stored) throw new Error('Unknown prepared task')
       if (stored.cancelled) throw new Error('This durable task was cancelled; create a new task for new work')
+      if (stored.pauseRequested) throw new Error('This task is paused; use resume_durable_task to continue it')
       body = { key: stored.key, title: stored.title, prompts: stored.prompts, model: stored.model,
         ...(stored.requestedAgentId == null ? {} : { agentId: stored.requestedAgentId }) }
       context = { ...(stored.origin ? { origin: stored.origin } : {}), ...(stored.execution ? { execution: stored.execution } : {}) }
@@ -175,6 +176,7 @@ export function install(rt) {
     const prior = await tasks.getCreate(specification.key)
     if (prior) {
       if (prior.cancelled) throw new Error('This durable task was cancelled; create a new task for new work')
+      if (prior.pauseRequested) throw new Error('This task is paused; use resume_durable_task to continue it')
       await tasks.prepareCreate(specification)
       const existing = await tasks.get(specification.key)
       if (existing) return { taskId: existing.id, key: specification.key }
@@ -247,6 +249,8 @@ export function install(rt) {
       jobs.push({ key, title, stepCount: stageCount, sessionIds: sessions, taskId: record?.id ?? null,
         ...(metadata?.origin ? { origin: metadata.origin } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
         ...(record?.cancellation ? { cancellation: record.cancellation } : {}),
+        pauseRequested: record?.pauseRequested ?? metadata?.pauseRequested === true,
+        paused: record ? record.pauseRequested === true && record.state.status === 'waiting' && record.state.checkpoint?.paused === true : metadata?.pauseRequested === true,
         cancelling: record?.abortRequested === true && record.state.status !== 'terminal',
         state: record?.state ?? (metadata?.cancelled ? { status: 'terminal', outcome: { status: 'aborted', result: [] } }
           : { status: metadata ? 'preparing' : 'missing', reason: 'NEEDS_RECONCILIATION' }) })
@@ -320,7 +324,7 @@ export function install(rt) {
       }
     })
   }
-  rt.cancelDurableFromBot = async (body, exec) => {
+  const controlFromBot = async (action, body, exec) => {
     await rt.load()
     const { bot, sessionId } = chatCaller(exec)
     if (rt.live?.get(sessionId)?.info !== undefined) {
@@ -329,32 +333,44 @@ export function install(rt) {
         if (event.type === 'turn/start') break
         if (event.type === 'user/message' && event.data?.source?.kind === 'user') { userJoined = true; break }
       }
-      if (!userJoined) throw new Error('Only a direct user request in this Bot chat can cancel a durable task')
+      if (!userJoined) throw new Error('Only a direct user request in this Bot chat can control a durable task')
     }
     const tasks = await open()
     return change(async () => {
       writeCheck()
       const view = await rt.durableStateForBot({}, exec)
-      const active = view.jobs.filter(job => job.state.status !== 'terminal')
-      const candidates = body.key === undefined ? active.length ? active : view.jobs.filter(job => job.state.outcome?.status === 'failed'
-        && job.cancellation?.status !== 'stopped') : view.jobs.filter(job => job.key === body.key)
+      const unfinished = view.jobs.filter(job => job.state.status !== 'terminal' && !job.cancelling)
+      const preferred = action === 'resume' ? unfinished.filter(job => job.pauseRequested)
+        : action === 'pause' ? unfinished.filter(job => !job.pauseRequested) : view.jobs.filter(job => job.state.status !== 'terminal')
+      const candidates = body.key === undefined ? preferred.length ? preferred : action === 'cancel' ? view.jobs.filter(job => job.state.outcome?.status === 'failed'
+        && job.cancellation?.status !== 'stopped') : action === 'pause' ? unfinished : [] : view.jobs.filter(job => job.key === body.key)
       if (!candidates.length) {
         if (body.key !== undefined) throw new Error('No durable task with that key belongs to this Bot chat')
-        return { status: 'none', message: 'No unfinished durable task in this Bot chat' }
+        return { status: 'none', message: action === 'resume' ? 'No paused durable task in this Bot chat' : 'No unfinished durable task in this Bot chat' }
       }
       if (candidates.length !== 1) return { status: 'choose_task', tasks: candidates.map(job => ({ key: job.key, title: job.title })),
-        message: 'Ask the user which task to stop; do not cancel every task or guess.' }
+        message: 'Ask the user which task; do not control every task or guess.' }
       const target = candidates[0]
       if (!belongsTo(target, bot.id)) throw new Error('No durable task with that key belongs to this Bot chat')
-      if (target.state.outcome?.status !== 'completed') for (const id of target.sessionIds) workerStops.add(id)
-      await tasks.cancel(target.key)
+      if (action === 'cancel') {
+        if (target.state.outcome?.status !== 'completed') for (const id of target.sessionIds) workerStops.add(id)
+        await tasks.cancel(target.key)
+      } else {
+        await tasks[action](target.key)
+        if (action === 'resume' && target.state.status === 'preparing') await create(tasks, { key: target.key })
+      }
       const job = (await rt.durableStateForBot({ key: target.key }, exec)).jobs[0]
       const outcome = job.state.outcome
       return { key: job.key, title: job.title, status: job.cancellation?.status === 'stopped' || outcome?.status === 'aborted' ? 'cancelled'
-        : job.cancelling ? 'cancelling' : outcome?.status === 'completed' ? 'completed' : 'needs_review',
-      message: 'Report only confirmed status. Cancelling is not cancelled; completed external actions are not rolled back.' }
+        : job.cancelling ? 'cancelling' : outcome?.status === 'completed' ? 'completed' : outcome ? 'needs_review'
+          : job.paused ? 'paused' : job.pauseRequested ? 'pausing' : 'running',
+      message: action === 'cancel' ? 'Report only confirmed status. Cancelling is not cancelled; completed external actions are not rolled back.'
+        : 'Pause waits for the current admitted step to finish and save. Paused work keeps its saved steps across restart; resume continues the same task without replaying completed steps. Do not promise an immediate freeze of a running tool.' }
     })
   }
+  rt.cancelDurableFromBot = (body, exec) => controlFromBot('cancel', body, exec)
+  rt.pauseDurableFromBot = (body, exec) => controlFromBot('pause', body, exec)
+  rt.resumeDurableFromBot = (body, exec) => controlFromBot('resume', body, exec)
   rt.assertDurableSessionAvailable = async sessionId => {
     await rt.load()
     if (!enabled()) return
@@ -371,6 +387,8 @@ export function install(rt) {
       const metadata = workerScopes.get(agent.id)
       if (!metadata) return next()
       if (signal?.aborted || scopeFailures.has(agent.id) || workerStops.has(agent.id)) return { kind: 'reject' }
+      const record = await runtime.get(metadata.key)
+      if (record?.pauseRequested && (record.state.checkpoint?.paused || record.input.steps[record.state.checkpoint?.step]?.sessionId !== agent.id)) return { kind: 'reject' }
       await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
     } catch {
       scopeFailures.add(agent.id)
