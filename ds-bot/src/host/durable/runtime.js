@@ -105,8 +105,14 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
         return runtime.sleepUntil(runtime.now() + pollMs, { ...task.state.checkpoint, phase: 'check', sent: true }, ctx)
       }),
     },
-    // This first integration does not claim that aborting a Pi task stops DSH tools.
-    abort: async (_task, runtime, ctx) => runtime.commit(() => fail('DSH cancellation has not been confirmed.', 'CANCEL_UNCONFIRMED'), ctx),
+    abort: async (task, runtime, ctx) => {
+      const progress = task.state.checkpoint
+      let stopped
+      try { stopped = await executor.stop?.(inputFor(task)) } catch {}
+      if (stopped?.status !== 'stopped') return runtime.commit(() => fail('Stopping DSH work could not be confirmed. Review the work chat before repeating any action.', 'CANCEL_UNCONFIRMED', progress), ctx)
+      const results = [...progress.results, ...(stopped.result === undefined ? [] : [stopped.result])]
+      return runtime.commit(() => ({ status: 'terminal', outcome: { status: 'aborted', reason: 'Cancelled by user', result: results } }), ctx)
+    },
   })
   const registry = createRegistry()
   registry.install(defineExtension({ name: 'ds-bot-durable', tasks: [Task] }))
@@ -122,6 +128,7 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     executor = {
       inspect: input => { if (!lease.owns()) throw new Error('Durable storage write ownership was lost'); return ownedExecutor.inspect(input) },
       dispatch: input => { if (!lease.owns()) throw new Error('Durable storage write ownership was lost'); return ownedExecutor.dispatch(input) },
+      stop: input => { if (!lease.owns()) throw new Error('Durable storage write ownership was lost'); return ownedExecutor.stop?.(input) },
     }
     harness = await Harness.open(await openNodeSqliteStorage(path), { models: createModels(), registry, onReport }, context)
     root = await harness.root(context)
@@ -209,6 +216,7 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     const signature = createHash('sha256').update(JSON.stringify(input.steps)).digest('hex')
     const id = await root.commit(async tx => {
       const jobs = await tx.doc(Jobs)
+      if (jobs.creates?.[key]?.cancelled) throw new Error('This durable task was cancelled; create a new task for new work')
       const existing = Object.hasOwn(jobs.items, key) ? jobs.items[key] : undefined
       if (existing) {
         if (existing.signature !== signature) throw new Error('Durable request key already names different input')
@@ -224,11 +232,45 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     harness.resume()
     return { taskId: id }
   }
+  const cancel = async key => {
+    if (!validKey(key)) throw new Error('Invalid durable request key')
+    const id = await taskId(key)
+    if (id !== undefined) {
+      const record = await harness.getTask(id, context)
+      if ((await harness.snapshot(Jobs, context))?.items?.[key]?.cancellation?.status === 'stopped') return
+      if (record.state.status === 'terminal' && !['completed', 'aborted'].includes(record.state.outcome.status)) {
+        const progress = record.state.outcome.error ?? {}
+        const index = Math.min(progress.completed ?? 0, record.input.steps.length - 1)
+        let stopped
+        try { stopped = await executor.stop?.({ ...record.input.steps[index], requestId: `${key}:${index}` }) } catch {}
+        await root.commit(async tx => {
+          const jobs = await tx.doc(Jobs)
+          jobs.items[key].cancellation = { status: stopped?.status === 'stopped' ? 'stopped' : 'needs_reconciliation', results: progress.results ?? [] }
+        }, context)
+        return
+      }
+      await harness.abortTask(id, context)
+      harness.resume()
+      return
+    }
+    await root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const draft = jobs.creates && Object.hasOwn(jobs.creates, key) ? jobs.creates[key] : undefined
+      if (!draft) throw new Error('Unknown durable task')
+      draft.cancelled = true
+    }, context)
+  }
   harness.resume()
   return {
-    submit, prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
+    submit, cancel, prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
     async getNotification(key) { return (await getCreate(key))?.notification },
-    async get(key) { const id = await taskId(key); return id === undefined ? undefined : harness.getTask(id, context) },
+    async get(key) {
+      const id = await taskId(key)
+      if (id === undefined) return undefined
+      const record = await harness.getTask(id, context)
+      const cancellation = (await harness.snapshot(Jobs, context))?.items?.[key]?.cancellation
+      return cancellation ? { ...record, cancellation } : record
+    },
     async wait(key) { const id = await taskId(key); if (id === undefined) throw new Error('Unknown durable request'); return harness.waitForTask(id, context) },
     async list() { const jobs = await harness.snapshot(Jobs, context); return [...new Set([...Object.keys(jobs?.items ?? {}), ...Object.keys(jobs?.creates ?? {})])] },
     async blockingSessions() {
@@ -236,11 +278,12 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
       const jobs = snapshot?.items ?? {}
       const sessions = new Set()
       for (const [key, draft] of Object.entries(snapshot?.creates ?? {})) {
-        if (!Object.hasOwn(jobs, key)) for (const id of draft.sessions) sessions.add(id)
+        if (!Object.hasOwn(jobs, key) && !draft.cancelled) for (const id of draft.sessions) sessions.add(id)
       }
       for (const job of Object.values(jobs)) {
+        if (job.cancellation?.status === 'stopped') continue
         const record = await harness.getTask(job.taskId, context)
-        if (record?.state.status === 'terminal' && record.state.outcome.status === 'completed') continue
+        if (record?.state.status === 'terminal' && ['completed', 'aborted'].includes(record.state.outcome.status)) continue
         for (const id of job.sessions ?? []) sessions.add(id)
       }
       return sessions

@@ -5,20 +5,23 @@ import { hostText, t } from './i18n.js'
 
 const MAX_STEPS = 20
 const MAX_PROMPT = 24000
-const resultsOf = job => job.state?.status === 'terminal' && job.state.outcome?.status === 'completed'
-  ? job.state.outcome.result ?? [] : job.state?.outcome?.error?.results ?? job.state?.checkpoint?.results ?? []
+const resultsOf = job => job.cancellation?.results ?? (job.state?.status === 'terminal' && ['completed', 'aborted'].includes(job.state.outcome?.status)
+  ? job.state.outcome.result ?? [] : job.state?.outcome?.error?.results ?? job.state?.checkpoint?.results ?? [])
 
 export function durableTaskSummary(job) {
   const state = job.state ?? {}
   const results = resultsOf(job)
   const count = job.stepCount ?? Math.max(results.length, (state.checkpoint?.step ?? 0) + 1)
   const completed = Math.min(state.outcome?.error?.completed ?? results.length, count)
+  if (job.cancelling) return { kind: 'cancelling', label: 'Stopping task', count, completed, results }
+  if (state.outcome?.status === 'aborted' || job.cancellation?.status === 'stopped') return { kind: 'cancelled', label: 'Cancelled', count, completed, results }
+  if (job.cancellation?.status === 'needs_reconciliation') return { kind: 'review', label: 'Needs review', count, completed, results, stopUnconfirmed: true }
   if (state.status === 'preparing') return { kind: 'preparing', label: 'Preparing task', count, completed: 0, results }
   if (state.status === 'terminal') {
     const outcome = state.outcome ?? {}
     if (outcome.status === 'completed') return { kind: 'completed', label: 'Completed', count, completed: count, results }
     const review = ['NEEDS_RECONCILIATION', 'CANCEL_UNCONFIRMED'].includes(outcome.error?.code)
-    return { kind: review ? 'review' : 'failed', label: review ? 'Needs review' : 'Failed', count, completed, results, error: outcome.error?.message }
+    return { kind: review ? 'review' : 'failed', label: review ? 'Needs review' : 'Failed', count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === 'CANCEL_UNCONFIRMED' }
   }
   if (state.status === 'missing') return { kind: 'review', label: 'Needs review', count, completed, results }
   return { kind: 'working', label: state.status === 'waiting' ? 'Waiting' : 'Working', count, completed, results }
@@ -92,7 +95,7 @@ function Job({ job, actions, refresh, readOnly }) {
     h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     summary.kind === 'preparing' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session', disabled: resuming || readOnly, onClick: resume }, t(resuming ? 'Preparing…' : 'Resume setup')) : null,
-    summary.kind === 'review' ? h('p', { className: 'bt-durable-review' }, t('Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
+    summary.kind === 'review' ? h('p', { className: 'bt-durable-review' }, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
     ['needs_reconciliation', 'unavailable'].includes(job.notification?.status) ? h('p', { className: 'bt-durable-review' }, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
     summary.kind === 'failed' && summary.error ? h('div', { className: 'bt-error', role: 'alert' }, hostText(summary.error)) : null,
     summary.results.length > 0 ? h('div', { className: 'bt-durable-results' }, summary.results.map((result, index) =>

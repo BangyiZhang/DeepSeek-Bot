@@ -53,6 +53,8 @@ var ZH = {
   "Refresh": "刷新",
   "Durable tasks": "持久任务",
   "Durable task": "持久任务",
+  "Stopping task": "正在停止任务",
+  "Stopping could not be confirmed. This task may still be running. Check its work chat.": "无法确认是否已停止，任务可能仍在运行，请查看执行会话。",
   "View task": "查看任务",
   "Could not start the task": "任务未能启动",
   "Starting a durable task": "正在创建持久任务",
@@ -7136,18 +7138,21 @@ function BtwTurnTail({ turn, sessionId, useRoster, actions }) {
 var import_react12 = require("react");
 var MAX_STEPS = 20;
 var MAX_PROMPT = 24e3;
-var resultsOf = (job) => job.state?.status === "terminal" && job.state.outcome?.status === "completed" ? job.state.outcome.result ?? [] : job.state?.outcome?.error?.results ?? job.state?.checkpoint?.results ?? [];
+var resultsOf = (job) => job.cancellation?.results ?? (job.state?.status === "terminal" && ["completed", "aborted"].includes(job.state.outcome?.status) ? job.state.outcome.result ?? [] : job.state?.outcome?.error?.results ?? job.state?.checkpoint?.results ?? []);
 function durableTaskSummary(job) {
   const state = job.state ?? {};
   const results = resultsOf(job);
   const count = job.stepCount ?? Math.max(results.length, (state.checkpoint?.step ?? 0) + 1);
   const completed = Math.min(state.outcome?.error?.completed ?? results.length, count);
+  if (job.cancelling) return { kind: "cancelling", label: "Stopping task", count, completed, results };
+  if (state.outcome?.status === "aborted" || job.cancellation?.status === "stopped") return { kind: "cancelled", label: "Cancelled", count, completed, results };
+  if (job.cancellation?.status === "needs_reconciliation") return { kind: "review", label: "Needs review", count, completed, results, stopUnconfirmed: true };
   if (state.status === "preparing") return { kind: "preparing", label: "Preparing task", count, completed: 0, results };
   if (state.status === "terminal") {
     const outcome = state.outcome ?? {};
     if (outcome.status === "completed") return { kind: "completed", label: "Completed", count, completed: count, results };
     const review = ["NEEDS_RECONCILIATION", "CANCEL_UNCONFIRMED"].includes(outcome.error?.code);
-    return { kind: review ? "review" : "failed", label: review ? "Needs review" : "Failed", count, completed, results, error: outcome.error?.message };
+    return { kind: review ? "review" : "failed", label: review ? "Needs review" : "Failed", count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === "CANCEL_UNCONFIRMED" };
   }
   if (state.status === "missing") return { kind: "review", label: "Needs review", count, completed, results };
   return { kind: "working", label: state.status === "waiting" ? "Waiting" : "Working", count, completed, results };
@@ -7233,7 +7238,7 @@ function Job({ job, actions, refresh, readOnly }) {
     (0, import_react12.createElement)("progress", { max: Math.max(summary.count, 1), value: summary.completed, "aria-label": t("Saved progress") }),
     error ? (0, import_react12.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
     summary.kind === "preparing" ? (0, import_react12.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-durable-session", disabled: resuming || readOnly, onClick: resume }, t(resuming ? "Preparing…" : "Resume setup")) : null,
-    summary.kind === "review" ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("Execution stopped at an uncertain step. Check the work chat before repeating an action.")) : null,
+    summary.kind === "review" ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t(summary.stopUnconfirmed ? "Stopping could not be confirmed. This task may still be running. Check its work chat." : "Execution stopped at an uncertain step. Check the work chat before repeating an action.")) : null,
     ["needs_reconciliation", "unavailable"].includes(job.notification?.status) ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("The result is saved. Check task details because its return to this chat could not be confirmed.")) : null,
     summary.kind === "failed" && summary.error ? (0, import_react12.createElement)("div", { className: "bt-error", role: "alert" }, hostText(summary.error)) : null,
     summary.results.length > 0 ? (0, import_react12.createElement)("div", { className: "bt-durable-results" }, summary.results.map((result, index) => (0, import_react12.createElement)(
@@ -7510,7 +7515,7 @@ function DurableChatTask({ admission, title, stepCount, actions }) {
       (0, import_react13.createElement)("span", null, t("{done} of {count} steps saved", { done: summary.completed, count: summary.count }))
     ) : null,
     reportNeedsReview ? (0, import_react13.createElement)("p", null, t("The result is saved. Check task details because its return to this chat could not be confirmed.")) : null,
-    summary?.kind === "review" ? (0, import_react13.createElement)("p", null, t("Execution stopped at an uncertain step. Check the work chat before repeating an action.")) : null,
+    summary?.kind === "review" ? (0, import_react13.createElement)("p", null, t(summary.stopUnconfirmed ? "Stopping could not be confirmed. This task may still be running. Check its work chat." : "Execution stopped at an uncertain step. Check the work chat before repeating an action.")) : null,
     error ? (0, import_react13.createElement)("p", { className: "bt-error", role: "status" }, hostText(error)) : null,
     (0, import_react13.createElement)(
       "div",
@@ -8251,6 +8256,8 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t("Checking the team"), state: "searching" };
     case "create_durable_task":
       return { label: t("Starting a durable task"), state: "working" };
+    case "cancel_durable_task":
+      return { label: t("Stopping task"), state: "working" };
     case "get_durable_task":
     case "list_durable_tasks":
       return { label: t("Checking task progress"), state: "searching" };

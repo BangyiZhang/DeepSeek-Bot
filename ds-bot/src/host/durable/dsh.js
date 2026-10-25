@@ -11,7 +11,7 @@ const matches = (message, requestId) => textOf(message?.content).startsWith(`${m
 const queued = agent => [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
 const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value)
 
-export function createDshExecutor({ ctx, canWrite = () => true, validateSession = () => true }) {
+export function createDshExecutor({ ctx, canWrite = () => true, validateSession = () => true, stopMs = 10000 }) {
   const guard = async input => {
     if (!input || typeof input.sessionId !== 'string' || !input.sessionId || input.sessionId.length > 256 || !validId(input.requestId)) {
       throw new Error('A dedicated sessionId and valid durable requestId are required')
@@ -87,7 +87,7 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
       : ended !== undefined ? 'interrupted' : found ? (agent.status === 'running' ? 'running' : 'interrupted')
         : waiting ? 'running' : agent.status === 'idle' ? 'absent' : 'uncertain'
     return {
-      sessionId, requestId, status, inputs, foreignInputs,
+      sessionId, requestId, status, inputs, foreignInputs, sequence: Number(agent.session.seq),
       ...(inputs > 1 ? { reason: 'duplicate_inputs' } : foreignInputs > 0 ? { reason: 'foreign_inputs' } : foreignQueued ? { reason: 'foreign_queued' } : status === 'uncertain' ? { reason: 'unmatched_activity' } : {}),
       ...(turn === undefined ? {} : { turn }), ...(ended === undefined ? {} : { endReason: ended }), ...(text ? { result: text } : {}),
     }
@@ -108,5 +108,41 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
     await ctx.sessions.flush((await agentOf(input.sessionId)).session)
     return { sessionId: input.sessionId, requestId: input.requestId, reused: false }
   }
-  return { inspect, dispatch }
+  const stop = async input => {
+    await guard(input)
+    const before = await inspect(input)
+    if (before.status === 'uncertain') return { status: 'uncertain', reason: before.reason }
+    const agent = await agentOf(input.sessionId)
+    if (typeof agent.cancel !== 'function' || typeof agent.whenIdle !== 'function') return { status: 'uncertain', reason: 'stop_unavailable' }
+    const jobs = ctx.get?.('jobs')
+    const children = ctx.get?.('subagents')
+    const ownedJobs = () => (jobs?.list(input.sessionId) ?? []).filter(job => job.owner === input.sessionId && ['running', 'stopping'].includes(job.status))
+    const stoppingJobs = ownedJobs()
+    // Dedicated sessions have one durable input. Never cancel a session whose
+    // transcript or inbox contains another person's work.
+    const verified = await inspect(input)
+    if (verified.status === 'uncertain' || verified.sequence !== Number(agent.session.seq)
+      || (verified.endReason !== undefined && agent.status === 'running')) return { status: 'uncertain', reason: 'history_changed' }
+    agent.cancel({ kind: 'user' })
+    for (const job of stoppingJobs) { try { jobs.kill(job.id, input.sessionId, 'Durable task cancelled by user') } catch {} }
+    let timer
+    try {
+      const settled = await Promise.race([
+        Promise.all([agent.whenIdle(), children?.drainDescendants([agent]),
+          ...stoppingJobs.map(job => jobs.wait(job.id, stopMs, input.sessionId).catch(() => undefined))]).then(() => true),
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), stopMs) }),
+      ])
+      if (!settled || agent.status !== 'idle' || ownedJobs().length) return { status: 'uncertain', reason: 'still_stopping' }
+      await ctx.sessions.flush(agent.session)
+      const after = await recordsOf(input.sessionId)
+      if (after.reason || queued(agent).some(message => !contextSources.has(sourceOf(message)))) return { status: 'uncertain', reason: 'stop_not_confirmed' }
+      for (const job of stoppingJobs) {
+        const receipt = after.records.findLast(event => event.type === 'job/settled' && event.data?.jobId === job.id)
+        if (receipt?.data?.producerReported !== true) return { status: 'uncertain', reason: 'job_stop_not_confirmed' }
+      }
+      const checked = await inspect(input)
+      return checked.status === 'uncertain' ? checked : { status: 'stopped', ...(before.status === 'completed' ? { result: before.result } : {}) }
+    } finally { clearTimeout(timer) }
+  }
+  return { inspect, dispatch, stop }
 }

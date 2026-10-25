@@ -241,6 +241,7 @@ function decide(body) {
     }
     switch (used?.name) {
       case 'create_durable_task': return [text(result.is_error ? `Durable chat creation refused: ${resultText}` : `Durable chat task accepted: ${resultText}`)]
+      case 'cancel_durable_task': return [text(`Durable chat cancel: ${resultText}`)]
       case 'list_durable_tasks':
       case 'get_durable_task': return [text(`Durable chat query: ${resultText}`)]
       case 'group_relay': return [text('')]
@@ -297,7 +298,7 @@ function decide(body) {
   const userText = textOf(last?.content).trim()
   if (userText.startsWith('[Durable task update]')) {
     const key = /^Task key: (.+)$/m.exec(userText)?.[1] ?? 'unknown'
-    return [text(`Durable chat report ${key}: ${userText.includes('Status: completed') ? 'completed' : 'needs review'}; ${userText.includes('owner context present') ? 'owner context present' : 'owner context missing'}; ${userText.includes('earlier result present') ? 'saved results received' : 'saved results absent'}.`)]
+    return [text(`Durable chat report ${key}: ${userText.includes('Status: cancelled') ? 'cancelled' : userText.includes('Status: completed') ? 'completed' : 'needs review'}; ${userText.includes('owner context present') ? 'owner context present' : 'owner context missing'}; ${userText.includes('earlier result present') ? 'saved results received' : 'saved results absent'}.`)]
   }
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
@@ -589,12 +590,19 @@ function decide(body) {
     steps: [`Durable chat stage 1 ${durableChat[1]}: collect the fixture facts.`, `Durable chat stage 2 ${durableChat[1]}: summarize the saved first-stage result.`],
   })]
   if (/^Durable chat list$/i.test(durableCommand) && tools.has('list_durable_tasks')) return [tool('list_durable_tasks', {})]
+  const cancelCommand = /^Durable chat cancel(?: ([a-zA-Z0-9_.-]+))?$/i.exec(durableCommand)
+  if ((cancelCommand || durableCommand === '停止') && tools.has('cancel_durable_task')) return [tool('cancel_durable_task', cancelCommand?.[1] ? { key: cancelCommand[1] } : {})]
   const durableResume = /^Durable chat resume ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableResume && tools.has('create_durable_task')) return [tool('create_durable_task', { key: durableResume[1] })]
   const durableGet = /^Durable chat get ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableGet && tools.has('get_durable_task')) return [tool('get_durable_task', { key: durableGet[1] })]
   if (durableRequest) {
     const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText)
+    if (chatStage?.[1] === '1' && chatStage[2] === 'cancel') {
+      const args = { command: 'printf started > cancel-started.txt; sleep 30; printf finished > cancel-finished.txt', description: 'Run the cancellable isolated fixture' }
+      if (tools.has('bash')) return [tool('bash', args)]
+      if (tools.has('run_code')) return [tool('run_code', { description: args.description, code: `console.log(await tools.bash(${JSON.stringify(args)}))` })]
+    }
     if (chatStage?.[1] === '1' && tools.has('read')) return [tool('read', { file_path: 'chat-facts.txt' })]
     if (chatStage?.[1] === '1' && tools.has('run_code')) return [tool('run_code', { description: 'Read the fixture facts', code: "console.log(await tools.read({ file_path: 'chat-facts.txt' }))" })]
     if (chatStage) return [text(`Durable chat stage ${chatStage[1]} ${chatStage[2]} finished; owner context ${(system + '\n' + userText).includes('DURABLE_CHAT_OWNER_CONTEXT') ? 'present' : 'missing'}; earlier result ${userText.includes(`Durable chat stage 1 ${chatStage[2]} finished`) ? 'present' : 'absent'}; team tools ${tools.has('list_bots') || tools.has('create_durable_task') ? 'present' : 'absent'}.`)]

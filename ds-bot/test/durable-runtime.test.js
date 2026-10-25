@@ -6,6 +6,73 @@ import {join} from 'node:path'
 import {openDurableRuntime} from '../src/host/durable/runtime.js'
 async function bench(t,executor,options={}){const home=await mkdtemp(join(tmpdir(),'dsb-durable-'));const config={database:join(home,'tasks.sqlite'),executor,pollMs:5,...options};let runtime=await openDurableRuntime(config);t.after(async()=>{await runtime.close();await rm(home,{recursive:true,force:true})});return{get runtime(){return runtime},async reopen(){await runtime.close();runtime=await openDurableRuntime(config)}}}
 const job=(key='job',sessionId='session')=>({key,steps:[{sessionId,prompt:'read the test fixture'}]})
+test('native Pi abort stops DSH once, preserves cancellation across reopen, and never runs the next stage', async t => {
+  let sends = 0
+  let stops = 0
+  const b = await bench(t, { inspect: async () => ({ status: sends ? 'running' : 'absent' }), dispatch: async () => { sends += 1 }, stop: async () => { stops += 1; return { status: 'stopped' } } })
+  await b.runtime.submit({ key: 'cancel', steps: [{ sessionId: 'first', prompt: 'first' }, { sessionId: 'second', prompt: 'second' }] })
+  while (!sends) await new Promise(resolve => setTimeout(resolve, 5))
+  await b.runtime.cancel('cancel')
+  assert.equal((await b.runtime.wait('cancel')).state.outcome.status, 'aborted')
+  await b.reopen()
+  assert.equal((await b.runtime.get('cancel')).state.outcome.status, 'aborted')
+  assert.equal(sends, 1)
+  assert.equal(stops, 1)
+  assert.equal((await b.runtime.blockingSessions()).size, 0)
+})
+test('unconfirmed cancellation stays reviewable with saved phase results', async t => {
+  const b = await bench(t, { inspect: async i => ({ status: i.sessionId === 'first' ? 'completed' : 'running', result: 'saved first' }), dispatch: async () => {}, stop: async () => ({ status: 'uncertain' }) })
+  await b.runtime.submit({ key: 'cancel', steps: [{ sessionId: 'first', prompt: 'first' }, { sessionId: 'second', prompt: 'second' }] })
+  while ((await b.runtime.get('cancel')).state.checkpoint?.step !== 1) await new Promise(resolve => setTimeout(resolve, 5))
+  await b.runtime.cancel('cancel')
+  const record = await b.runtime.wait('cancel')
+  assert.equal(record.state.outcome.error.code, 'CANCEL_UNCONFIRMED')
+  assert.deepEqual(record.state.outcome.error.results, ['saved first'])
+  assert.equal((await b.runtime.blockingSessions()).has('second'), true)
+})
+test('cancelled preparation cannot resume after restart', async t => {
+  const b = await bench(t, { inspect: async () => ({ status: 'absent' }), dispatch: async () => assert.fail('cancelled setup') })
+  await b.runtime.prepareCreate({ key: 'draft', title: 'Draft', prompts: ['Do work'], model: 'test/model' })
+  await b.runtime.cancel('draft')
+  await b.reopen()
+  assert.equal((await b.runtime.getCreate('draft')).cancelled, true)
+  await assert.rejects(b.runtime.submit(job('draft')), /cancelled/)
+})
+test('cancellation waits for in-flight DSH admission before confirming the stop', async t => {
+  let release
+  let entered = false
+  let admitted = false
+  let stops = 0
+  const b = await bench(t, { inspect: async () => ({ status: admitted ? 'running' : 'absent' }),
+    dispatch: async () => { entered = true; await new Promise(resolve => { release = resolve }); admitted = true },
+    stop: async () => { assert.equal(admitted, true); stops += 1; return { status: 'stopped' } } })
+  await b.runtime.submit(job())
+  while (!entered) await new Promise(resolve => setTimeout(resolve, 5))
+  const cancelling = b.runtime.cancel('job')
+  await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(stops, 0)
+  release()
+  await cancelling
+  assert.equal((await b.runtime.wait('job')).state.outcome.status, 'aborted')
+  assert.equal(stops, 1)
+})
+test('a persisted abort mark resumes cancellation after Host shutdown, never normal dispatch', async t => {
+  let release
+  let stops = 0
+  let sends = 0
+  const b = await bench(t, { inspect: async () => ({ status: 'running' }), dispatch: async () => { sends += 1 },
+    stop: async () => { stops += 1; return stops === 1 ? new Promise(resolve => { release = resolve }) : { status: 'stopped' } } })
+  await b.runtime.submit(job())
+  await b.runtime.cancel('job')
+  while (!release) await new Promise(resolve => setTimeout(resolve, 5))
+  const closing = b.runtime.close()
+  release({ status: 'uncertain' })
+  await closing
+  await b.reopen()
+  assert.equal((await b.runtime.wait('job')).state.outcome.status, 'aborted')
+  assert.equal(sends, 0)
+  assert.equal(stops, 2)
+})
 test('real Pi SQLite preserves completed tasks and deduplicates admission after reopen',async t=>{let calls=0;const done=new Set();const b=await bench(t,{inspect:async i=>({status:done.has(i.requestId)?'completed':'absent',result:'done'}),dispatch:async i=>{calls++;done.add(i.requestId)}});const one=await b.runtime.submit(job());assert.equal((await b.runtime.wait('job')).state.outcome.status,'completed');await b.reopen();assert.deepEqual(await b.runtime.submit(job()),one);assert.equal(calls,1);await assert.rejects(b.runtime.submit({...job(),steps:[{sessionId:'session',prompt:'other'}]}),/different input/);await assert.rejects(b.runtime.submit(job('other')),/exclusive/)});
 test('ambiguous and interrupted execution fail closed without redispatch',async t=>{for(const status of ['uncertain','interrupted']){let calls=0;const b=await bench(t,{inspect:async()=>({status}),dispatch:async()=>{calls++}});await b.runtime.submit(job());const result=await b.runtime.wait('job');assert.equal(result.state.outcome.error.code,'NEEDS_RECONCILIATION');assert.equal(calls,0)}});
 test('a missing acknowledged request is not resent',async t=>{let sent=0;const b=await bench(t,{inspect:async()=>({status:'absent'}),dispatch:async()=>{sent++}});await b.runtime.submit(job());const result=await b.runtime.wait('job');assert.equal(result.state.outcome.status,'failed');assert.equal(sent,1)});

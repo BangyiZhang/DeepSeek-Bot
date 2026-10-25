@@ -15,6 +15,15 @@ runInNewContext(bundle.outputFiles[0].text, {
 })
 const { durableTaskSummary } = module.exports
 
+test('cancellation is only final after confirmation and retains completed stages', () => {
+  const stopping = durableTaskSummary({ cancelling: true, stepCount: 2, state: { checkpoint: { results: ['saved'] } } })
+  assert.equal(stopping.label, 'Stopping task')
+  const stopped = durableTaskSummary({ stepCount: 2, state: { status: 'terminal', outcome: { status: 'aborted', result: ['saved'] } } })
+  assert.equal(stopped.label, 'Cancelled')
+  assert.equal(stopped.completed, 1)
+  assert.equal(durableTaskSummary({ state: { status: 'terminal', outcome: { status: 'failed', error: { code: 'CANCEL_UNCONFIRMED' } } } }).label, 'Needs review')
+})
+
 test('failed later steps retain earlier saved results in the task summary', () => {
   const saved = ['First step result']
   const summary = durableTaskSummary({ stepCount: 3, state: { status: 'terminal', outcome: {

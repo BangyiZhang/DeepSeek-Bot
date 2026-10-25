@@ -43,6 +43,7 @@ export function install(rt) {
   let changes = Promise.resolve()
   const workerGuards = new WeakSet()
   const workerScopes = new Map()
+  const workerStops = new Set()
   const scopeFailures = new Set()
   const rememberScope = metadata => {
     if (metadata?.execution && metadata.origin) for (const sessionId of metadata.sessions) workerScopes.set(sessionId, metadata)
@@ -94,17 +95,27 @@ export function install(rt) {
         if (scopeFailures.has(input.sessionId)) return { status: 'uncertain', reason: 'scope_changed' }
         return operation(input)
       }
-      const executor = { inspect: scoped(dsh.inspect, true), dispatch: scoped(dsh.dispatch) }
+      const executor = { inspect: scoped(dsh.inspect, true), dispatch: scoped(dsh.dispatch), stop: input => {
+        workerStops.add(input.sessionId)
+        return dsh.stop(input)
+      } }
       runtime = await openDurableRuntime({
         database: join(directory, 'tasks.sqlite'), executor,
         onReport: (_error, info) => { rt.warn('ds-bot: durable task report %s', info.type) },
       })
-      for (const key of await runtime.list()) rememberScope(await runtime.getCreate(key))
+      for (const key of await runtime.list()) {
+        const metadata = await runtime.getCreate(key)
+        rememberScope(metadata)
+        const record = await runtime.get(key)
+        if (metadata?.cancelled || record?.abortRequested || record?.state.outcome?.status === 'aborted' || record?.cancellation?.status === 'stopped') {
+          for (const sessionId of metadata?.sessions ?? []) workerStops.add(sessionId)
+        }
+      }
       notifier = createDurableNotifier({ rt, tasks: runtime })
       void runtime.list().then(async keys => {
         for (const key of keys) {
           const draft = await runtime.getCreate(key)
-          if (stopping || !draft?.origin || await runtime.get(key)) continue
+          if (stopping || !draft?.origin || draft.cancelled || await runtime.get(key)) continue
           await change(() => { writeCheck(); return create(runtime, { key }) })
         }
       }).catch(() => { if (!stopping) rt.warn('ds-bot: a durable chat task setup needs review') })
@@ -142,8 +153,9 @@ export function install(rt) {
       if (typeof agent.ctx?.tools?.guard !== 'function') throw new Error('The durable worker tool boundary could not be enforced')
       // Local registrations are not covered by the global allow mask. A tool
       // added after setup must still stay inside the captured delegation.
-      agent.ctx.tools.guard(exec => exec.name !== 'run_code' && (!allowed.has(exec.name) || workerDenied.has(exec.name))
-        ? 'This tool was not delegated to this durable task by its originating Bot.' : undefined)
+      agent.ctx.tools.guard(exec => workerStops.has(sessionId) ? 'This durable task is stopping or cancelled; no new tools may run.'
+        : exec.name !== 'run_code' && (!allowed.has(exec.name) || workerDenied.has(exec.name))
+          ? 'This tool was not delegated to this durable task by its originating Bot.' : undefined)
       workerGuards.add(agent)
     }
     presets.set(agent.session, execution.permission)
@@ -154,6 +166,7 @@ export function install(rt) {
     if (Object.keys(body).length === 1 && typeof body.key === 'string') {
       const stored = await tasks.getCreate(body.key)
       if (!stored) throw new Error('Unknown prepared task')
+      if (stored.cancelled) throw new Error('This durable task was cancelled; create a new task for new work')
       body = { key: stored.key, title: stored.title, prompts: stored.prompts, model: stored.model,
         ...(stored.requestedAgentId == null ? {} : { agentId: stored.requestedAgentId }) }
       context = { ...(stored.origin ? { origin: stored.origin } : {}), ...(stored.execution ? { execution: stored.execution } : {}) }
@@ -161,6 +174,7 @@ export function install(rt) {
     const specification = { ...createRequest(body), ...context }
     const prior = await tasks.getCreate(specification.key)
     if (prior) {
+      if (prior.cancelled) throw new Error('This durable task was cancelled; create a new task for new work')
       await tasks.prepareCreate(specification)
       const existing = await tasks.get(specification.key)
       if (existing) return { taskId: existing.id, key: specification.key }
@@ -232,7 +246,10 @@ export function install(rt) {
       const sessions = metadata?.sessions ?? record?.input?.steps.map(step => step.sessionId) ?? []
       jobs.push({ key, title, stepCount: stageCount, sessionIds: sessions, taskId: record?.id ?? null,
         ...(metadata?.origin ? { origin: metadata.origin } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
-        state: record?.state ?? { status: metadata ? 'preparing' : 'missing', reason: 'NEEDS_RECONCILIATION' } })
+        ...(record?.cancellation ? { cancellation: record.cancellation } : {}),
+        cancelling: record?.abortRequested === true && record.state.status !== 'terminal',
+        state: record?.state ?? (metadata?.cancelled ? { status: 'terminal', outcome: { status: 'aborted', result: [] } }
+          : { status: metadata ? 'preparing' : 'missing', reason: 'NEEDS_RECONCILIATION' }) })
     }
     return { enabled: true, ...(failure ? { error: failure } : {}), jobs }
   }
@@ -303,6 +320,41 @@ export function install(rt) {
       }
     })
   }
+  rt.cancelDurableFromBot = async (body, exec) => {
+    await rt.load()
+    const { bot, sessionId } = chatCaller(exec)
+    if (rt.live?.get(sessionId)?.info !== undefined) {
+      let userJoined = false
+      if (rt.eventsBackwards) for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(10000))) {
+        if (event.type === 'turn/start') break
+        if (event.type === 'user/message' && event.data?.source?.kind === 'user') { userJoined = true; break }
+      }
+      if (!userJoined) throw new Error('Only a direct user request in this Bot chat can cancel a durable task')
+    }
+    const tasks = await open()
+    return change(async () => {
+      writeCheck()
+      const view = await rt.durableStateForBot({}, exec)
+      const active = view.jobs.filter(job => job.state.status !== 'terminal')
+      const candidates = body.key === undefined ? active.length ? active : view.jobs.filter(job => job.state.outcome?.status === 'failed'
+        && job.cancellation?.status !== 'stopped') : view.jobs.filter(job => job.key === body.key)
+      if (!candidates.length) {
+        if (body.key !== undefined) throw new Error('No durable task with that key belongs to this Bot chat')
+        return { status: 'none', message: 'No unfinished durable task in this Bot chat' }
+      }
+      if (candidates.length !== 1) return { status: 'choose_task', tasks: candidates.map(job => ({ key: job.key, title: job.title })),
+        message: 'Ask the user which task to stop; do not cancel every task or guess.' }
+      const target = candidates[0]
+      if (!belongsTo(target, bot.id)) throw new Error('No durable task with that key belongs to this Bot chat')
+      if (target.state.outcome?.status !== 'completed') for (const id of target.sessionIds) workerStops.add(id)
+      await tasks.cancel(target.key)
+      const job = (await rt.durableStateForBot({ key: target.key }, exec)).jobs[0]
+      const outcome = job.state.outcome
+      return { key: job.key, title: job.title, status: job.cancellation?.status === 'stopped' || outcome?.status === 'aborted' ? 'cancelled'
+        : job.cancelling ? 'cancelling' : outcome?.status === 'completed' ? 'completed' : 'needs_review',
+      message: 'Report only confirmed status. Cancelling is not cancelled; completed external actions are not rolled back.' }
+    })
+  }
   rt.assertDurableSessionAvailable = async sessionId => {
     await rt.load()
     if (!enabled()) return
@@ -318,7 +370,7 @@ export function install(rt) {
       await open()
       const metadata = workerScopes.get(agent.id)
       if (!metadata) return next()
-      if (signal?.aborted || scopeFailures.has(agent.id)) return { kind: 'reject' }
+      if (signal?.aborted || scopeFailures.has(agent.id) || workerStops.has(agent.id)) return { kind: 'reject' }
       await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
     } catch {
       scopeFailures.add(agent.id)

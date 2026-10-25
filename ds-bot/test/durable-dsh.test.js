@@ -19,8 +19,56 @@ function fixture(events = [], options = {}) {
     },
     sessions: { flush: async () => { calls.flushes += 1 } },
   }
-  return { agent, ctx, calls, executor: createDshExecutor({ ctx, ...options }) }
+  return { agent, ctx, calls, records, executor: createDshExecutor({ ctx, ...options }) }
 }
+
+test('stop cancels only matched dedicated input and waits for actual idle', async () => {
+  const f = fixture([own()])
+  f.agent.status = 'running'
+  let cancelled = 0
+  f.agent.cancel = () => { cancelled += 1; f.agent.status = 'idle'; f.records.push({ event: { ...end('aborted'), seq: f.agent.session.seq++ } }) }
+  f.agent.whenIdle = async () => {}
+  assert.equal((await f.executor.stop(input)).status, 'stopped')
+  assert.equal(cancelled, 1)
+  const foreign = fixture([{ type: 'user/message', data: { content: text('unrelated work') } }])
+  foreign.agent.cancel = () => assert.fail('must not cancel foreign work')
+  foreign.agent.whenIdle = async () => {}
+  assert.equal((await foreign.executor.stop(input)).status, 'uncertain')
+})
+
+test('stop does not claim success when a producer ignores cancellation', async () => {
+  const f = fixture([own()], { stopMs: 5 })
+  f.agent.status = 'running'
+  f.agent.cancel = () => {}
+  f.agent.whenIdle = () => new Promise(() => {})
+  assert.equal((await f.executor.stop(input)).reason, 'still_stopping')
+})
+
+test('queued input is cleared and unrelated unowned jobs are left alone', async () => {
+  const f = fixture()
+  f.agent.inbox.nextTurn.push(own().data)
+  f.agent.cancel = () => { f.agent.inbox.nextTurn = [] }
+  f.agent.whenIdle = async () => {}
+  f.ctx.get = name => name === 'jobs' ? { list: () => [{ id: 'unowned', status: 'running' }], kill: () => assert.fail('unowned job') } : undefined
+  assert.equal((await f.executor.stop(input)).status, 'stopped')
+})
+test('owned jobs and descendants must settle, and forced job settlement is not proof of exit', async () => {
+  for (const producerReported of [true, false]) {
+    const f = fixture([own()])
+    f.agent.status = 'running'
+    f.agent.cancel = () => { f.agent.status = 'idle' }
+    f.agent.whenIdle = async () => {}
+    let live = true
+    let drained = false
+    f.ctx.get = name => name === 'jobs' ? {
+      list: () => [{ id: 'owned', owner: 'session', status: live ? 'running' : 'killed' }, { id: 'other', owner: 'other', status: 'running' }],
+      kill: (id, caller) => { assert.equal(id, 'owned'); assert.equal(caller, 'session') },
+      wait: async () => { live = false; f.records.push({ event: { type: 'job/settled', seq: f.agent.session.seq++, data: { jobId: 'owned', producerReported } } }) },
+    } : name === 'subagents' ? { drainDescendants: async parents => { assert.deepEqual(parents, [f.agent]); drained = true } } : undefined
+    assert.equal((await f.executor.stop(input)).status, producerReported ? 'stopped' : 'uncertain')
+    assert.equal(drained, true)
+  }
+})
 test('completed request reads the public transcript result; interrupted requests are distinguished', async () => {
   const complete = fixture([{ type: 'turn/start', data: { turn: 7 } }, own(), answer, end('completed')])
   const record = await complete.executor.inspect(input)

@@ -49,7 +49,7 @@ export function DurableChatTask({ admission, title, stepCount, actions }) {
       h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
       h('span', null, t('{done} of {count} steps saved', { done: summary.completed, count: summary.count }))) : null,
     reportNeedsReview ? h('p', null, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
-    summary?.kind === 'review' ? h('p', null, t('Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
+    summary?.kind === 'review' ? h('p', null, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
     error ? h('p', { className: 'bt-error', role: 'status' }, hostText(error)) : null,
     h('div', { className: 'bt-durable-chat-actions' },
       h('button', { type: 'button', className: 'bt-mini', onClick: () => actions.openSettings?.('durable') }, t('View task')),

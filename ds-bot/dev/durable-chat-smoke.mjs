@@ -1,7 +1,7 @@
 // Exercise Bot chat tools, real Pi SQLite, DSH execution and chat result delivery in an isolated mock team.
 import assert from 'node:assert/strict'
 import { fork } from 'node:child_process'
-import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -332,6 +332,33 @@ try {
   assert.equal(afterRestart.inbox.some(message => message.source?.role === 'durable'), false)
   assert.equal((await api('durable-state')).jobs.length, initialJobs + 3)
   console.log('PASS: a second clean Host restart preserves task identities/results and acknowledged chat reports')
+  const cancellable = await createFromChat(main.id, 'cancel')
+  await until(() => existsSync(resolve(fixtureFolder, 'cancel-started.txt')), 'real cancellable shell process started')
+  await waitForIdle(main.id)
+  const foreignCancelAt = rows().length
+  await sendChat(other.id, `Durable chat cancel ${cancellable.key}`)
+  await until(() => rows().slice(foreignCancelAt).some(row => hasOutput(row, /Durable chat cancel:/)), 'foreign cancellation refusal')
+  await waitForIdle(other.id)
+  const refusal = rows().slice(foreignCancelAt).flatMap(row => row.out ?? []).filter(block => block.type === 'text').map(block => block.text).join('\n')
+  assert.match(refusal, /No durable task with that key belongs to this Bot chat/)
+  assert.equal((await api('durable-state', { key: cancellable.key })).jobs[0].state.status === 'terminal', false)
+  const cancelAt = rows().length
+  await sendChat(main.id, '停止')
+  await until(() => rows().slice(cancelAt).some(row => row.out?.some(block => block.type === 'tool_use' && block.name === 'cancel_durable_task')), 'natural stop calls cancellation tool')
+  const cancelled = await finished(cancellable.key)
+  assert.equal(cancelled.state.outcome.status, 'aborted', JSON.stringify(cancelled.state.outcome))
+  assert.equal((await snapshot(cancelled.sessionIds[0])).status, 'idle')
+  assert.equal((await rpc('inspect', { sessionId: cancelled.sessionIds[1], requestId: `${cancellable.key}:1` }, 'inspection')).inputs, 0)
+  await waitForReport(main.id, cancellable.key)
+  await delay(1000)
+  assert.equal(existsSync(resolve(fixtureFolder, 'cancel-finished.txt')), false)
+  await stop(dsh)
+  await startDsh()
+  assert.equal((await finished(cancellable.key)).state.outcome.status, 'aborted')
+  await delay(1000)
+  assert.equal(existsSync(resolve(fixtureFolder, 'cancel-finished.txt')), false)
+  assert.equal((await rpc('inspect', { sessionId: cancelled.sessionIds[1], requestId: `${cancellable.key}:1` }, 'inspection')).inputs, 0)
+  console.log('PASS: natural stop cancels the owned live shell, refuses another Bot, skips later stages, and stays cancelled after restart')
   console.log('Durable chat smoke passed')
 } finally {
   for (const child of children.toReversed()) await stop(child)

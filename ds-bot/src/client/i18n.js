@@ -16,6 +16,8 @@ const ZH = {
   'Refresh': '刷新',
   'Durable tasks': '持久任务',
   'Durable task': '持久任务',
+  'Stopping task': '正在停止任务',
+  'Stopping could not be confirmed. This task may still be running. Check its work chat.': '无法确认是否已停止，任务可能仍在运行，请查看执行会话。',
   'View task': '查看任务',
   'Could not start the task': '任务未能启动',
   'Starting a durable task': '正在创建持久任务',

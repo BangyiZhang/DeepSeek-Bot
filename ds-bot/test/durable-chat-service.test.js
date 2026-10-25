@@ -10,7 +10,7 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
   const home = await mkdtemp(join(tmpdir(), 'dsb-durable-chat-'))
   const effects = []
   const listeners = new Map()
-  const calls = { allocated: [], selected: [], prompts: [], presets: [], tools: new Map(), modelFails: false,
+  const calls = { allocated: [], selected: [], prompts: [], presets: [], tools: new Map(), modelFails: false, cancelled: [],
     sourceTools: ['read', 'bash', 'subagent', 'list_bots', 'create_durable_task'],
     globalTools: ['read', 'bash', 'list_bots', 'create_durable_task', 'create_goal', 'update_goal', 'get_goal', 'ask_user_question'],
     workerTools: new Map(), guards: new Map() }
@@ -22,6 +22,13 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
   const append = (id, event) => { const agent = sessions.get(id); records.get(id).push({ event: { ...event, seq: agent.session.seq++ } }) }
   const makeSession = (id, cwd = '/task-workspace') => {
     const agent = { id, session: { id, seq: 0, header: { cwd } }, status: 'idle', inbox: { nextStep: [], nextTurn: [] } }
+    agent.cancel = () => {
+      calls.cancelled.push(id)
+      agent.inbox.nextStep = []; agent.inbox.nextTurn = []
+      if (agent.status === 'running') append(id, { type: 'turn/end', data: { reason: { kind: 'aborted' } } })
+      agent.status = 'idle'
+    }
+    agent.whenIdle = async () => {}
     if (id.startsWith('worker-')) {
       calls.workerTools.set(id, [...calls.globalTools, 'subagent'])
       agent.ctx = { tools: { restrict(filter) {
@@ -104,6 +111,66 @@ async function until(check) {
 }
 const request = { title: 'Inspect and summarize', steps: ['Inspect a fixture.', 'Summarize the saved inspection.'] }
 const state = async (b, key) => (await b.rt.durableStateForBot({ key }, { agent: b.source })).jobs[0]
+
+test('a plain stop cancels the single task without cancelling the Bot chat', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  await until(() => b.calls.prompts.length === 1)
+  const response = JSON.parse(await b.execute('cancel_durable_task'))
+  assert.equal(['cancelling', 'cancelled'].includes(response.status), true)
+  const job = await until(async () => { const job = await state(b, admitted.key); return job.state.status === 'terminal' && job })
+  assert.equal(job.state.outcome.status, 'aborted')
+  assert.deepEqual(b.calls.cancelled, ['worker-1'])
+  assert.equal(b.calls.prompts.length, 1)
+  assert.match(b.calls.guards.get('worker-1')({ name: 'read' }), /stopping or cancelled/)
+  assert.equal((await b.beforeStep(b.recreate('worker-1'))).kind, 'reject')
+  assert.equal(JSON.parse(await b.execute('cancel_durable_task', { key: admitted.key })).status, 'cancelled')
+})
+
+test('ambiguous stop asks which task and another Bot cannot cancel either one', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const first = JSON.parse(await b.execute('create_durable_task', request))
+  const second = JSON.parse(await b.execute('create_durable_task', { ...request, title: 'Other work' }, b.source, 'other-call'))
+  await until(() => b.calls.prompts.length === 2)
+  assert.equal(JSON.parse(await b.execute('cancel_durable_task')).status, 'choose_task')
+  assert.deepEqual(b.calls.cancelled, [])
+  await assert.rejects(b.execute('cancel_durable_task', { key: first.key }, b.peer), /belongs to this Bot/)
+  await b.execute('cancel_durable_task', { key: first.key })
+  await until(async () => (await state(b, first.key)).state.outcome?.status === 'aborted')
+  assert.notEqual((await state(b, second.key)).state.status, 'terminal')
+  assert.deepEqual(b.calls.cancelled, ['worker-1'])
+})
+
+test('a stopped preparation cannot be restarted from the saved key', async t => {
+  const b = await bench(t)
+  b.calls.modelFails = true
+  let key
+  await assert.rejects(b.execute('create_durable_task', request), error => { key = /Durable task (chat-[a-f0-9]+)/.exec(error.message)?.[1]; return Boolean(key) })
+  assert.equal(JSON.parse(await b.execute('cancel_durable_task', { key })).status, 'cancelled')
+  b.calls.modelFails = false
+  await assert.rejects(b.execute('create_durable_task', { key }), /cancelled/)
+  assert.equal(b.calls.prompts.length, 0)
+})
+test('the owner can confirm a stop after scope reconciliation failed, without reopening execution', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  await until(() => b.calls.prompts.length === 1)
+  b.changeBundle({ sandbox: 'changed', approval: 'ask' })
+  await until(async () => (await state(b, admitted.key)).state.status === 'terminal')
+  assert.equal(JSON.parse(await b.execute('cancel_durable_task', { key: admitted.key })).status, 'cancelled')
+  assert.equal((await state(b, admitted.key)).cancellation.status, 'stopped')
+  await b.execute('cancel_durable_task', { key: admitted.key })
+  assert.deepEqual(b.calls.cancelled, ['worker-1'])
+})
+test('an actual user stop joined to a report is accepted, while the report alone cannot cancel work', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  b.rt.live.set('chief', { info: { role: 'durable' } })
+  await assert.rejects(b.execute('cancel_durable_task', { key: admitted.key }), /direct user request/)
+  b.rt.eventsBackwards = async function* () { yield { type: 'user/message', data: { source: { kind: 'user' } } }; yield { type: 'turn/start' } }
+  await b.execute('cancel_durable_task', { key: admitted.key })
+  await until(async () => (await state(b, admitted.key)).state.outcome?.status === 'aborted')
+})
 
 test('chat tools create real Pi work under the actual model, folder and permission', async t => {
   const b = await bench(t)

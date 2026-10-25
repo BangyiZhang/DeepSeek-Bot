@@ -106,6 +106,8 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 This fork includes an opt-in Pi Durable 1.4 task runtime alongside DSH. DSH still runs the models and tools; Pi persists workflow stages and recovery state. Enable it in Settings → Durable tasks, then give a Bot work in its own chat. The Bot can create a staged task, show saved progress in the conversation, and report the result there automatically. Workers inherit the Bot's current model, working folder, instructions and supported permission preset. Group chats, team-only tools, Bot-attached capabilities and session-only/custom permissions are not supported by this preview; the Bot reports that limitation instead of silently changing its execution scope. Settings also retains manual creation and saved results. See the [integration design and isolated tests](docs/plans/2026-10-25-pi-durable-integration.md).
 
+Say “stop” in that Bot's chat to cancel its current task. If more than one task is active, the Bot asks which one. The task is marked cancelled only after its execution stops; completed actions are not rolled back, and an unconfirmed stop stays visible for review.
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

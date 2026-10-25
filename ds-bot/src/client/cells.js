@@ -728,6 +728,7 @@ function toolActivity(name, arg, findBot, self) {
     }
     case 'list_bots': return { label: t('Checking the team'), state: 'searching' }
     case 'create_durable_task': return { label: t('Starting a durable task'), state: 'working' }
+    case 'cancel_durable_task': return { label: t('Stopping task'), state: 'working' }
     case 'get_durable_task':
     case 'list_durable_tasks': return { label: t('Checking task progress'), state: 'searching' }
     case 'read_group_chat': return { label: t('Reading {name}', { name: arg('group') ?? t('a group chat') }), state: 'searching' }

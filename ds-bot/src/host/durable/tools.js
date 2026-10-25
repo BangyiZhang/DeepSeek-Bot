@@ -16,6 +16,12 @@ export function install(rt) {
     },
   })
   register({
+    name: 'cancel_durable_task',
+    description: 'Stop this Bot chat\'s durable task when the user says stop, cancel, or do not continue. Call this directly in the chat, never delegate cancellation to a new task. Pass the existing key when the user identifies a task. Omit key only for the single unfinished task; if several match, ask which one. The result distinguishes cancelling, cancelled, completed, and needs_review. Do not say stopped until cancellation is confirmed. Completed external actions are not rolled back. You cannot stop work owned by another Bot chat.',
+    parameters: { key: { type: 'string', description: 'Existing task key from this chat. Omit only when exactly one unfinished task exists.' } },
+    async execute(args, exec) { return JSON.stringify(await rt.cancelDurableFromBot(args, exec)) },
+  })
+  register({
     name: 'get_durable_task',
     description: 'Read a saved task belonging to this Bot\'s own chat. Use when the user asks about its progress or when checking a task after a restart; do not repeatedly poll. It reports saved outputs and any need for manual review. It does not restart or retry the work.',
     parameters: { key: { type: 'string', required: true, description: 'Existing durable task key returned by create_durable_task or list_durable_tasks' } },
@@ -32,7 +38,8 @@ export function install(rt) {
       const value = await rt.durableStateForBot({}, exec)
       return JSON.stringify({ ...value, total: value.jobs.length, jobs: value.jobs.slice(-50).reverse().map(job => ({
         key: job.key, title: job.title, stepCount: job.stepCount, status: job.state.status,
-        completed: job.state.status === 'terminal' ? job.state.outcome.status === 'completed' ? job.stepCount : job.state.outcome.error?.completed ?? 0 : job.state.checkpoint?.step ?? 0,
+        completed: job.state.status === 'terminal' ? job.state.outcome.status === 'completed' ? job.stepCount : job.state.outcome.error?.completed ?? job.state.outcome.result?.length ?? 0 : job.state.checkpoint?.step ?? 0,
+        ...(job.cancelling ? { cancelling: true } : {}), ...(job.cancellation ? { cancellation: job.cancellation.status } : {}),
         ...(job.state.status === 'terminal' ? { outcome: job.state.outcome.status } : {}),
       })) })
     },
