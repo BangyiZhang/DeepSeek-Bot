@@ -43,6 +43,7 @@ if (host !== undefined && location.origin === host) {
 
 // The shell writes all grid columns together. Replace only the left track in an
 // app-owned variable so opening or resizing the right sidebar still works.
+// Its collapsed 56px track arrives before the collapsed sidebar mounts.
 function macSidebar() {
   const findFrame = () => document.querySelector('[class*="_frame"]:has(> [class*="_sidebarCol"])')
   const attach = () => {
@@ -51,8 +52,8 @@ function macSidebar() {
     const sync = () => {
       const columns = frame.style.gridTemplateColumns
       if (!columns) return
-      const rail = columns.replace(/^\S+/, 'var(--ds-bot-mac-rail-width)')
-      if (frame.style.getPropertyValue('--ds-bot-mac-rail-columns') !== rail) frame.style.setProperty('--ds-bot-mac-rail-columns', rail)
+      const rail = columns.replace(/^56px(?=\s|$)/, 'var(--ds-bot-mac-rail-width)')
+      if (frame.style.getPropertyValue('--ds-bot-mac-columns') !== rail) frame.style.setProperty('--ds-bot-mac-columns', rail)
     }
     new MutationObserver(sync).observe(frame, { attributes: true, attributeFilter: ['style'] })
     sync()

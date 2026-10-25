@@ -5,8 +5,8 @@ html[data-ds-bot-mac-titlebar] {
 }
 
 /* Keep every native button inside the rail, while retaining the shell's right column. */
-html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_frame"]:has(> [class*="_sidebarCol"] [data-slot="sidebar"] > [class*="_collapsed"]) {
-  grid-template-columns: var(--ds-bot-mac-rail-columns) !important;
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_frame"]:has(> [class*="_sidebarCol"]) {
+  grid-template-columns: var(--ds-bot-mac-columns) !important;
 }
 html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [data-slot="sidebar"] > [class*="_collapsed"] {
   width: 100% !important;
