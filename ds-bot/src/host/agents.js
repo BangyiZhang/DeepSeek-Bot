@@ -140,6 +140,7 @@ export function install(rt) {
     writeCheck()
     const agent = record(agentId)
     if (!agent.sessions.includes(sessionId)) throw new Error('Session does not belong to the DSH Agent')
+    await rt.assertDurableSessionAvailable?.(sessionId)
     // Archive first: the Session leaves the Agent only once it is actually gone,
     // so a failed archive stays retryable and keeps its tool restriction.
     await ctx.workspaceRegistry.archiveSession(sessionId)
@@ -161,6 +162,7 @@ export function install(rt) {
     writeCheck()
     const agent = record(agentId)
     const sessions = [...agent.sessions]
+    for (const sessionId of sessions) await rt.assertDurableSessionAvailable?.(sessionId)
     const kept = []
     let failure
     for (const sessionId of sessions) {
@@ -182,5 +184,9 @@ export function install(rt) {
     await rt.save()
   }
 
-  Object.assign(rt, { agentOf, addAgent, createAgentSession, adoptAgentSession, archiveAgentSession, renameAgentSession, removeAgent })
+  const sessionChange = operation => (...args) => rt.withDurableSessionChange
+    ? rt.withDurableSessionChange(() => operation(...args)) : operation(...args)
+  Object.assign(rt, { agentOf, addAgent, createAgentSession, adoptAgentSession,
+    archiveAgentSession: sessionChange(archiveAgentSession), renameAgentSession,
+    removeAgent: sessionChange(removeAgent) })
 }

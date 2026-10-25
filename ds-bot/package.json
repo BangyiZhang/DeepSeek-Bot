@@ -44,7 +44,8 @@
     "test": "node --import ./test/harness-resolve.mjs --test \"test/*.test.js\"",
     "lint": "node scripts/lint.mjs",
     "harness": "npm install --prefix dev/harness --legacy-peer-deps=false --no-package-lock --no-fund --no-audit",
-    "check": "sh dev/check.sh"
+    "check": "sh dev/check.sh",
+    "test:durable": "node dev/durable-smoke.mjs && node dev/durable-api-smoke.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -62,5 +63,10 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0"
   }
 }

@@ -95,9 +95,13 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking'])
+  const READS = new Set(['durable-state', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking'])
 
   function setPrefs(body) {
+    if (body.durableTasks !== undefined) {
+      if (body.durableTasks !== true) throw invalid('Durable tasks can only be enabled from this preview')
+      state.prefs.durableTasks = true
+    }
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -143,6 +147,10 @@ export function install(rt) {
       const readOnly = rt.readOnly()
       if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
       switch (endpoint) {
+        case 'durable-state':
+        case 'durable-submit':
+        case 'durable-create':
+          return ok(await rt.durableEndpoint(endpoint, body))
         case 'state':
           if (typeof body.locale === 'string' && /^[a-z]{2,3}(-[\w-]+)?$/i.test(body.locale)) uiLocale = body.locale
           if (readOnly === undefined) await rt.bootstrap()

@@ -102,6 +102,10 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 ![Usage page](docs/images/usage.png)
 
+### Experimental Pi Durable integration
+
+This fork includes an opt-in Pi Durable 1.4 task runtime alongside DSH. DSH still runs the models and tools; Pi persists workflow stages and recovery state. Open Settings → Durable tasks to enable the preview, choose a model, and run a task in steps. It uses dedicated DSH Agent sessions; existing Bot chats are not migrated. See the [integration design and isolated tests](docs/plans/2026-10-25-pi-durable-integration.md).
+
 ## Data
 
 All data stays on your own computer, in `bot/` and `sessions/` in the DSH home folder (`~/.dsh` by default). Uninstalling the plugin does not delete this data.

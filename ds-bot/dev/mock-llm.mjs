@@ -132,6 +132,7 @@ function decide(body) {
       && textBlocks(message.content).some(value => value.startsWith('Side note:'))).length
     return [text(`Side note: ${pairs} earlier pair(s) seen.`)]
   }
+  const durableRequest = [...messages].reverse().filter(message => message.role === 'user').map(message => /\[DS Bot durable request ([a-zA-Z0-9_.:-]+)\]/.exec(textOf(message.content))?.[1]).find(Boolean)
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
   const isMain = system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
@@ -247,7 +248,7 @@ function decide(body) {
         try { picked = JSON.parse(resultText).answers?.[0]?.selected?.[0] ?? '' } catch {}
         return [text(picked ? `好，就从「${picked}」开始。` : '好的。'), text('我先把要点理一下，稍后给你一个方案。')]
       }
-      case 'list_bots': return [text(`现在的班底：\n${resultText}`)]
+      case 'list_bots': return [text(durableRequest ? `Durable result ${durableRequest}: ${resultText}` : `现在的班底：\n${resultText}`)]
       case 'create_group':
       case 'update_group':
       case 'delete_group':
@@ -566,6 +567,7 @@ function decide(body) {
   if (card && tools.has('ask_user')) {
     return [text(filler(Number(card[1] ?? 4) * 1000, '卡片前')), tool('ask_user', { question: '接下来先做哪个？', options: ['写正文', '改标题', '先停'] })]
   }
+  if (durableRequest) return tools.has('list_bots') ? [tool('list_bots', {})] : [text(`Durable result ${durableRequest}: completed without team tools`)]
   if (/团队|班底|team/i.test(userText) && tools.has('list_bots')) return [tool('list_bots', {})]
   if (/想想|思考|think/i.test(userText)) {
     return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]

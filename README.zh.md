@@ -102,6 +102,10 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ![用量页](docs/images/usage.zh.png)
 
+### 实验性 Pi Durable 集成
+
+此 fork 已接入默认关闭的 Pi Durable 1.4 任务运行时。模型和工具仍由 DSH 执行，Pi 保存工作阶段及恢复状态。在“设置 → 持久任务”中开启体验、选择模型并创建分步任务。它使用专用 DSH Agent 会话，现有 Bot 聊天尚未迁移。详见[集成设计与隔离测试](docs/plans/2026-10-25-pi-durable-integration.md)。
+
 ## 数据
 
 所有数据都在你自己的电脑上，在 dsh 主目录（默认 `~/.dsh`）的 `bot/` 和 `sessions/` 里。卸载插件不会删除这些数据。
