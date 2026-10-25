@@ -1,4 +1,5 @@
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { useFocusScope } from './focus-scope.js'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, stripHeader } from './text.js'
@@ -22,7 +23,9 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     setLeaving(true)
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS)
   }
-  useEscape(close)
+  const focusRef = useRef(null)
+  useFocusScope(focusRef, !leaving, { modal: true })
+  useEscape(close, !leaving)
   const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(item => item.id)]
   const found = useSessions((list) => {
     if (wanted.length < 2) return '[]'
@@ -101,7 +104,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
   let index = -1
   return h('div', { className: 'bt-palette-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-backdrop', onMouseDown: close }),
-    h('div', { className: 'bt-palette', role: 'dialog', 'aria-label': t('Search'), 'aria-modal': true },
+    h('div', { ref: focusRef, tabIndex: -1, className: 'bt-palette', role: 'dialog', 'aria-label': t('Search'), 'aria-modal': true },
       h('div', { className: 'bt-palette-head' },
         h('span', { className: 'bt-palette-glyph', 'aria-hidden': true }, h(SearchIcon)),
         h('input', {

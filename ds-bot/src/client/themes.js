@@ -38,7 +38,7 @@ function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
     '--bt-bubble': mode.bubble, '--bt-sidebar': mode.sidebar, '--bt-main': mode.bg, '--bt-card': mode.card,
-    '--bt-line': rgba(mode.text, 0.08), '--bt-line-2': rgba(mode.text, 0.15),
+    '--bt-line': rgba(mode.text, dark ? 0.08 : 0.12), '--bt-line-2': rgba(mode.text, dark ? 0.15 : 0.2),
     '--bt-hover': dark ? 'rgba(160,160,160,.12)' : 'rgba(119,119,119,.09)',
     '--bt-active': dark ? 'rgba(160,160,160,.2)' : 'rgba(119,119,119,.17)',
     '--bt-accent': accent, '--bt-accent-ink': accentInk(accent),

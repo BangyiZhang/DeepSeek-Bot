@@ -1,3 +1,4 @@
+import { useFocusScope } from './focus-scope.js'
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart } from './text.js'
@@ -6,18 +7,21 @@ import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 export function ContextMenu({ menu, roster, actions, leaving = false }) {
-  useEscape(() => actions.closeMenu())
+  useEscape(() => actions.closeMenu(), !leaving)
   useEffect(() => {
     const onDown = (event) => { if (!(event.target instanceof Element) || !event.target.closest('.bt-menu')) actions.closeMenu() }
     window.addEventListener('mousedown', onDown)
     return () => window.removeEventListener('mousedown', onDown)
   }, [])
   const ref = useRef(null)
+  useFocusScope(ref, !leaving, { menu: true, close: () => actions.closeMenu() })
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
     if (!box) return
-    setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) })
+    const left = Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8))
+    const top = Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8))
+    setPlace({ left, top, '--bt-origin': `${menu.x - left}px ${menu.y - top}px` })
   }, [menu.x, menu.y])
   if (menu.kind === 'agent' || menu.kind === 'agent-session') return h(AgentMenu, { menu, roster, actions, leaving })
   const bot = roster.byId[menu.id]
@@ -47,7 +51,7 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
       isMainBot ? null : [room ? t('Delete group') : t('Delete'), TrashIcon, () => (bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id)), true],
     ],
   ].map(group => group.filter(Boolean)).filter(group => group.length > 0)
-  return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': t('{name} actions', { name: bot?.name ?? room.name }), style: place, 'data-leaving': leaving || undefined },
+  return h('div', { ref, className: 'bt-menu', role: 'menu', tabIndex: -1, 'aria-label': t('{name} actions', { name: bot?.name ?? room.name }), style: place, 'data-leaving': leaving || undefined },
     groups.map((group, index) => h(Fragment, { key: index },
       index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
       group.map(([label, Icon, run, danger]) => h('button', {
@@ -59,11 +63,14 @@ export function ContextMenu({ menu, roster, actions, leaving = false }) {
 // Menus for the DSH Agent row and its Sessions; none of the Bot entries apply.
 function AgentMenu({ menu, roster, actions, leaving }) {
   const ref = useRef(null)
+  useFocusScope(ref, !leaving, { menu: true, close: () => actions.closeMenu() })
   const [place, setPlace] = useState({ left: menu.x, top: menu.y })
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
     if (!box) return
-    setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8)) })
+    const left = Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8))
+    const top = Math.max(8, Math.min(menu.y, window.innerHeight - box.height - 8))
+    setPlace({ left, top, '--bt-origin': `${menu.x - left}px ${menu.y - top}px` })
   }, [menu.x, menu.y])
   const agent = roster.agentsById[menu.kind === 'agent' ? menu.id : menu.agentId]
   if (agent === undefined) return null
@@ -84,7 +91,7 @@ function AgentMenu({ menu, roster, actions, leaving }) {
           [t('Archive'), TrashIcon, () => actions.archiveAgentSession(agent.id, menu.id), true],
         ],
       ]
-  return h('div', { ref, className: 'bt-menu', role: 'menu', 'aria-label': menu.kind === 'agent' ? 'DSH Agent' : t('Session actions'), style: place, 'data-leaving': leaving || undefined },
+  return h('div', { ref, className: 'bt-menu', role: 'menu', tabIndex: -1, 'aria-label': menu.kind === 'agent' ? 'DSH Agent' : t('Session actions'), style: place, 'data-leaving': leaving || undefined },
     groups.map((group, index) => h(Fragment, { key: index },
       index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
       group.map(([label, Icon, run, danger]) => h('button', {

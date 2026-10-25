@@ -1,3 +1,4 @@
+import { GLASS_SHELL_CSS, GLASS_CONVERSATION_CSS } from './glass.js'
 import { INKS } from './inks.js'
 import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
@@ -18,10 +19,12 @@ const SKIN_FOOT = ':is(div,footer):not([class*="_footArea"]):has(> div > [data-s
 // CONVERSATION_CSS re-skins the shell's own conversation DOM and styles what only
 // the conversation renders.
 export const SHELL_CSS = `
-body{--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56)}
+body{--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.12);--bt-line-2:rgba(20,20,20,.2);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56)}
 body[data-ds-dark-theme]{--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join('')}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join('')}
+body{ --bt-glass-fill:color-mix(in srgb,var(--bt-main) 86%,transparent); --bt-glass-menu-fill:color-mix(in srgb,var(--bt-main) 92%,transparent); --bt-glass-edge:var(--bt-line-2); --bt-glass-light:rgba(255,255,255,.3); --bt-glass-shade:rgba(0,0,0,.04); --bt-glass-sheen:linear-gradient(145deg,rgba(255,255,255,.1),transparent 60%); --bt-glass-shadow:0 2px 8px -3px rgba(0,0,0,.1),inset 0 .5px 0 var(--bt-glass-light); }
+body[data-ds-dark-theme]{ --bt-glass-edge:var(--bt-line); --bt-glass-light:rgba(255,255,255,.06); --bt-glass-shade:rgba(0,0,0,.12); --bt-glass-sheen:linear-gradient(145deg,rgba(255,255,255,.035),transparent 60%); --bt-glass-shadow:0 2px 8px -3px rgba(0,0,0,.2),inset 0 .5px 0 var(--bt-glass-light); }
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
 .bt-mark svg{width:100%;height:100%;overflow:visible}
 .bt-mark-img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;box-shadow:inset 0 0 0 1px var(--bt-line)}
@@ -618,7 +621,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-palette-layer[data-leaving]{pointer-events:none}
 .bt-palette-layer[data-leaving] .bt-backdrop{opacity:0;transition:opacity .16s ease-in}
 .bt-palette-layer[data-leaving] .bt-palette{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
-@keyframes bt-palette-in{from{translate:0 -10px;scale:.96}}
+@keyframes bt-palette-in{from{translate:0 10px;scale:.96}}
 .bt-palette-head{display:flex;align-items:center;gap:4px;padding:14px 10px 14px 14px;border-bottom:.5px solid var(--bt-line-2)}
 .bt-palette-glyph{display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;color:var(--bt-ink-3);margin-right:4px}
 .bt-palette-head input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:15px;line-height:22px;padding:0}
@@ -808,6 +811,28 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
 :is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-pick,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
+
+/* Keyboard focus follows the same hierarchy as the floating surfaces. */
+:is(.bt-settings,.bt-mem,.bt-palette,.bt-menu) :is(button,a,input,textarea,select):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-menu button:focus-visible{background:var(--bt-hover);outline-offset:-2px}
+.bt-menu button:active:not(:disabled){background:var(--bt-active)}
+:is(.bt-round,.bt-pill,.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-palette-clear,.bt-seg button):active:not(:disabled){transition-duration:0s}
+@supports (backdrop-filter:blur(16px)){
+:is(.bt-menu,.bt-palette){background:color-mix(in srgb,var(--bt-main) 94%,transparent);backdrop-filter:blur(16px) saturate(1.2)}
+}
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+:is(.bt-menu,.bt-palette){background:var(--bt-main);backdrop-filter:none}
+}
+@media (prefers-contrast:more){
+:is(.bt-menu,.bt-palette,.bt-settings,.bt-mem){border-color:var(--bt-ink-2)}
+}
+@media (prefers-reduced-motion:reduce){
+:is(.bt-settings,.bt-mem,.bt-palette,.bt-menu),:is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer)[data-leaving]>[role=dialog]{animation:none!important}
+:is(.bt-round,.bt-pill,.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-palette-clear,.bt-seg button):active:not(:disabled){scale:none;transform:none}
+:is(.bt-round,.bt-pill,.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-palette-clear,.bt-seg button){transition-property:background-color,color,border-color,opacity!important}
+}
+
+${GLASS_SHELL_CSS}
 `
 
 export const CONVERSATION_CSS = `
@@ -1013,6 +1038,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-earlier .bt-event{margin:4px 0}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
+${GLASS_CONVERSATION_CSS}
 `
 
 // -------------------------------------------------------------------------

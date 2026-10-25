@@ -1,3 +1,4 @@
+import { useFocusScope } from './focus-scope.js'
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
@@ -188,7 +189,9 @@ function GroupsPage({ roster, actions, run }) {
 export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false }) {
   const [error, setError] = useState('')
   const close = useCallback(() => actions.closeSettings(), [])
-  useEscape(close)
+  const focusRef = useRef(null)
+  useFocusScope(focusRef, !leaving, { modal: true })
+  useEscape(close, !leaving)
   const run = promise => Promise.resolve(promise)
     .then(() => { setError(''); return true })
     .catch(failure => { setError(failure?.message ?? String(failure)); return false })
@@ -218,7 +221,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const errorLine = error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, error) : null
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim', onMouseDown: close }),
-    h('div', { className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('DS Bot settings') },
+    h('div', { ref: focusRef, tabIndex: -1, className: 'bt-settings', role: 'dialog', 'aria-modal': true, 'aria-label': t('DS Bot settings') },
       h('nav', { ref: nav.box, className: 'bt-settings-nav', 'aria-label': t('Settings pages') },
         h('span', { ref: nav.thumb, className: 'bt-thumb', 'aria-hidden': true }),
         pages.map(([key, text]) => h('button', {

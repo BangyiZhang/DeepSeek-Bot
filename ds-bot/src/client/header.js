@@ -10,8 +10,8 @@ import { t } from './i18n.js'
 // -------------------------------------------------------------------------
 // Conversation header
 
-// The pill's tail: a → that springs in on hover, flipping to ← while details are open.
-const GoArrow = () => h('svg', { width: 14, height: 14, viewBox: '-12 -12 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M-7 0H7M2 -5L7 0L2 5' }))
+// The chevron flips while conversation details are open.
+const GoChevron = () => h('svg', { width: 14, height: 14, viewBox: '-12 -12 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M-3 -6L3 0L-3 6' }))
 
 // How long the pill says "Memory updated" after the change reaches this window.
 const MEMORY_NOTICE_MS = 3_200
@@ -103,7 +103,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       : room ? h(RoomAvatar, { room, roster, size: 24 }) : null,
     h('span', { className: 'bt-pill-name' }, away ? t('Back to chat') : bot?.name ?? room?.name ?? (title || t('New chat'))),
     h(MemoryNotice, { shown: memoryNotice }),
-    h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow))),
+    h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoChevron))),
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }),

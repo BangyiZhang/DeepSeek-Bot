@@ -1,3 +1,4 @@
+import { useFocusScope } from './focus-scope.js'
 // The memory dialog of a Bot or a group chat (`owner`: { id, name, group }): a summary
 // a model writes from every saved entry, the entries themselves behind the ⋯ menu,
 // and "Ask or update", one model call that answers from the entries or changes them.
@@ -218,7 +219,9 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const inputRef = useRef(null)
   const now = useNow(30_000)
   const close = useCallback(() => actions.closeMemory(), [])
-  useEscape(close)
+  const focusRef = useRef(null)
+  useFocusScope(focusRef, !leaving, { modal: true })
+  useEscape(close, !leaving)
   useEffect(() => {
     if (!menu) return undefined
     const onDown = (event) => {
@@ -272,7 +275,7 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const busy = answer?.pending === true
   return h('div', { className: 'bt-mem-layer', 'data-leaving': leaving || undefined },
     h('div', { className: 'bt-scrim bt-mem-scrim', onMouseDown: close }),
-    h('div', { className: 'bt-mem', role: 'dialog', 'aria-modal': true, 'aria-label': t("{name}'s memory", { name: owner.name }) },
+    h('div', { ref: focusRef, tabIndex: -1, className: 'bt-mem', role: 'dialog', 'aria-modal': true, 'aria-label': t("{name}'s memory", { name: owner.name }) },
       h('div', { className: 'bt-mem-head' },
         page === 'entries' ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back to the summary'), onClick: backToSummary }, h(ChevronLeftIcon)) : null,
         h('h2', null, page === 'entries' ? t('All entries') : t('Memory summary')),

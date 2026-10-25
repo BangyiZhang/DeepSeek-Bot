@@ -1,3 +1,4 @@
+import { useFocusScope } from './focus-scope.js'
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { inkText } from './inks.js'
 import { dayLabel } from './text.js'
@@ -23,7 +24,9 @@ export function ExchangeDialog({ pair, roster, actions }) {
     setLeaving(true)
     setTimeout(() => actions.closeOverlay(), SHEET_EXIT_MS)
   }
-  useEscape(close)
+  const focusRef = useRef(null)
+  useFocusScope(focusRef, !leaving, { modal: false })
+  useEscape(close, !leaving)
   useEffect(() => {
     let stop = false
     let timer
@@ -45,7 +48,7 @@ export function ExchangeDialog({ pair, roster, actions }) {
   let lastDay = 0
   const paneLeft = usePaneLeft()
   return h('div', { className: 'bt-pane bt-exchange', style: { left: paneLeft }, 'data-leaving': leaving || undefined },
-    h('div', { className: 'bt-dialog', role: 'dialog', 'aria-label': t('Bot exchange') },
+    h('div', { ref: focusRef, tabIndex: -1, className: 'bt-dialog', role: 'dialog', 'aria-label': t('Bot exchange') },
       h('div', { className: 'bt-head' }, h('span', { className: 'bt-pill', style: { cursor: 'default' } },
         left ? h(BotMark, { bot: left, size: 22 }) : null, left?.name ?? '?',
         h('span', { className: 'bt-swap' }, '⇄'),

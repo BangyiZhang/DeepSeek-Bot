@@ -1,3 +1,4 @@
+import { useFocusScope } from './focus-scope.js'
 import { createElement as h, Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart } from './text.js'
@@ -106,6 +107,7 @@ export function useAnchoredMenu() {
   const button = useRef(null)
   const menu = useRef(null)
   const close = () => setPlace(null)
+  useFocusScope(menu, place !== null, { menu: true, close })
   useEffect(() => {
     if (place === null) return undefined
     const onDown = (event) => {

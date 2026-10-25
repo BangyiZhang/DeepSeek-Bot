@@ -1,6 +1,80 @@
 /* Keep the web shortcut mode: only this app's window chrome changes. */
 html[data-ds-bot-mac-titlebar] {
   --dsh-frame-chrome-top: 0px;
+  --ds-bot-mac-rail-width: 96px;
+}
+
+/* Keep every native button inside the rail, while retaining the shell's right column. */
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_frame"]:has(> [class*="_sidebarCol"] [data-slot="sidebar"] > [class*="_collapsed"]) {
+  grid-template-columns: var(--ds-bot-mac-rail-columns) !important;
+}
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [data-slot="sidebar"] > [class*="_collapsed"] {
+  width: 100% !important;
+}
+html[data-ds-bot-mac-titlebar][data-fullscreen] [data-slot="sidebar"] > [class*="_collapsed"] {
+  padding-inline: 4px;
+}
+html[data-ds-bot-mac-titlebar] [data-slot="sidebar"] > [class*="_collapsed"] > [class*="_logoRow"] {
+  justify-content: center;
+}
+html[data-ds-bot-mac-titlebar] [data-slot="sidebar"] > [class*="_collapsed"] > [class*="_footArea"] {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] > [class*="_footArea"] > [class*="_settingsArea"] {
+  width: 44px !important;
+  justify-content: center;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] [class*="_railRow"]:has(.bt-account) {
+  width: 44px;
+  justify-content: center;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] .bt-account {
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] :is([class*="_toggle"], .bt-rail > .bt-round, .bt-account) {
+  border-radius: 50%;
+  corner-shape: round;
+}
+
+/* The rail's expand action is navigation, not another Bot avatar. */
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] [class*="_toggle"] > [class*="_railMark"] {
+  display: none;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] [class*="_toggle"] > [class*="_panelIcon"] {
+  display: block;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] :is([class*="_toggle"], .bt-rail > .bt-round, .bt-rail .bt-row, .bt-account) {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] .bt-rail {
+  gap: 8px;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] .bt-rail .bt-list {
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] .bt-rail .bt-row {
+  padding: 4px;
+  border-radius: 16px;
+  corner-shape: superellipse(1.25);
+  overflow: visible;
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] :is([class*="_toggle"], .bt-rail > .bt-round, .bt-rail .bt-row, .bt-account):hover {
+  background: var(--bt-hover);
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] :is([class*="_toggle"], .bt-round, .bt-row, .bt-account):focus-visible {
+  outline: 2px solid var(--bt-accent);
+  outline-offset: 2px;
 }
 
 /* The native traffic lights occupy the brand's existing space. */
@@ -19,4 +93,36 @@ html[data-ds-bot-mac-titlebar] :is(.bt-side-top, .bt-head) :is(button, a, input,
 /* A collapsed sidebar's expand control sits below the native buttons. */
 html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_collapsed"] > [class*="_logoRow"] {
   margin-top: 48px;
+}
+
+/* Keep the sidebar flat and edge-aligned, with a quiet boundary to the chat. */
+html[data-ds-bot-mac-titlebar] [class*="_sidebarCol"] {
+  background: var(--bt-sidebar);
+  border-right: 1px solid var(--bt-line);
+}
+html[data-ds-bot-mac-titlebar] .bt-side-top { gap: 8px; }
+html[data-ds-bot-mac-titlebar] [class*="_sidebarCol"] :is(.bt-round,.bt-account,.bt-connect) {
+  background: var(--bt-card);
+  border: 1px solid var(--bt-line);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-ds-bot-mac-titlebar] [class*="_sidebarCol"] :is(.bt-round,.bt-account,.bt-connect):hover {
+  background: var(--bt-hover);
+}
+html[data-ds-bot-mac-titlebar] [class*="_collapsed"] [class*="_toggle"] {
+  border: 1px solid var(--bt-line);
+  background: var(--bt-card);
+}
+html[data-ds-bot-mac-titlebar] .bt-tile[aria-current=page] {
+  background: transparent;
+  box-shadow: none;
+}
+html[data-ds-bot-mac-titlebar] .bt-tile:hover { background: var(--bt-hover); }
+html[data-ds-bot-mac-titlebar] [data-composer-card] {
+  background: var(--bt-card) !important;
+  border-color: var(--bt-line-2) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }

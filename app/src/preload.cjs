@@ -24,13 +24,38 @@ if (host !== undefined && location.origin === host) {
       else delete root.dataset.fullscreen
     })
     const start = () => {
-      if (mac) document.documentElement.dataset.dsBotMacTitlebar = ''
+      if (mac) {
+        document.documentElement.dataset.dsBotMacTitlebar = ''
+        macSidebar()
+      }
       else frameless(caption.slice('--ds-bot-caption='.length), process.argv.includes('--ds-bot-mica'))
     }
     // A preload runs before the document root exists.
     if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true })
     else start()
   }
+}
+
+// The shell writes all grid columns together. Replace only the left track in an
+// app-owned variable so opening or resizing the right sidebar still works.
+function macSidebar() {
+  const findFrame = () => document.querySelector('[class*="_frame"]:has(> [class*="_sidebarCol"])')
+  const attach = () => {
+    const frame = findFrame()
+    if (frame === null) return false
+    const sync = () => {
+      const columns = frame.style.gridTemplateColumns
+      if (!columns) return
+      const rail = columns.replace(/^\S+/, 'var(--ds-bot-mac-rail-width)')
+      if (frame.style.getPropertyValue('--ds-bot-mac-rail-columns') !== rail) frame.style.setProperty('--ds-bot-mac-rail-columns', rail)
+    }
+    new MutationObserver(sync).observe(frame, { attributes: true, attributeFilter: ['style'] })
+    sync()
+    return true
+  }
+  if (attach()) return
+  const observer = new MutationObserver(() => { if (attach()) observer.disconnect() })
+  observer.observe(document.body, { childList: true, subtree: true })
 }
 
 function frameless(height, mica) {

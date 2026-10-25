@@ -25,7 +25,7 @@ On macOS, Electron's default `userData` directory for `productName` "DeepSeek Bo
 
 ## Window layout
 
-On macOS, the native traffic lights sit in the sidebar's former brand area. The separate title bar and the top-left DS Bot wordmark are hidden. Empty areas of the sidebar header and chat header drag the window, while controls remain clickable. The app retains web keyboard handling and uses its own layout marker rather than enabling DSH's native-menu shortcut mode. Fullscreen and a collapsed sidebar reserve space for the native controls.
+On macOS, the native traffic lights sit in the sidebar's former brand area. The separate title bar and the top-left DS Bot wordmark are hidden. Empty areas of the sidebar header and chat header drag the window, while controls remain clickable. The app retains web keyboard handling and uses its own layout marker rather than enabling DSH's native-menu shortcut mode. Fullscreen and a collapsed sidebar reserve space for the native controls. Outside fullscreen, the collapsed rail is 96px wide so all three native buttons stay within its background; the conversation and the right sidebar retain their own grid tracks. Rail actions use centered 44px hit targets with consistent spacing; the expand action always shows a sidebar icon, and Bot badges have room inside their selection background. The sidebar remains flat and edge-aligned, with solid theme surfaces and individual circular controls. The composer uses a solid card surface; light-theme borders remain visible across presets. Menus and header controls retain subtle web materials with opaque accessibility fallbacks.
 
 ## First start and import
 

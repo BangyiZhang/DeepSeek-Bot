@@ -18,10 +18,10 @@ export function springEasing(stiffness, damping) {
   return { duration: Math.round(end * 1000), easing: `linear(${points.join(',')})`, stiffness, damping }
 }
 
-// The capsule's two springs: a gentle one (ω=20, ζ=0.78) reshapes surfaces, a
-// tighter one (ω=30, ζ=0.8) answers the press.
-export const SPRING_SHAPE = springEasing(400, 31.2)
-export const SPRING_TAP = springEasing(900, 48)
+// Ordinary clicks settle without overshoot; moving highlights keep their own
+// velocity-aware springs for direct manipulation.
+export const SPRING_SHAPE = springEasing(400, 40)
+export const SPRING_TAP = springEasing(900, 60)
 // Rows of a list move to new places on ω=22, ζ=0.8.
 export const SPRING_LIST = springEasing(484, 35.2)
 // A looser spring (ω≈18, ζ≈0.56) that overshoots a little, for a surface that stretches
