@@ -93,6 +93,7 @@ function Job({ job, actions, refresh, readOnly }) {
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     summary.kind === 'preparing' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session', disabled: resuming || readOnly, onClick: resume }, t(resuming ? 'Preparing…' : 'Resume setup')) : null,
     summary.kind === 'review' ? h('p', { className: 'bt-durable-review' }, t('Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
+    ['needs_reconciliation', 'unavailable'].includes(job.notification?.status) ? h('p', { className: 'bt-durable-review' }, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
     summary.kind === 'failed' && summary.error ? h('div', { className: 'bt-error', role: 'alert' }, hostText(summary.error)) : null,
     summary.results.length > 0 ? h('div', { className: 'bt-durable-results' }, summary.results.map((result, index) =>
       h('details', { key: index, className: 'bt-durable-result' },
@@ -207,7 +208,8 @@ export function DurableTasksPage({ roster, actions }) {
     h('style', null, CSS),
     h('div', { className: 'bt-durable-intro' },
       h('span', { className: 'bt-durable-note' }, t('Experimental')),
-      h('p', null, t('Tasks run in separate work chats and save each completed step. Saved steps survive an app restart.'))),
+      h('p', null, t('Tasks run in separate work chats and save each completed step. Saved steps survive an app restart.')),
+      h('p', null, t('You can give a Bot a task in its own chat. Saved progress and results return there.'))),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     view === null ? h('div', { className: 'bt-empty', role: 'status' }, t('Loading tasks…')) : !view.enabled ? h('div', { className: 'bt-set-card bt-durable-form' },
       h('p', { className: 'bt-set-hint' }, t('Enable durable tasks to try a workflow with saved progress.')),

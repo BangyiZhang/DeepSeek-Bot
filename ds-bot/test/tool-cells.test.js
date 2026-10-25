@@ -206,8 +206,16 @@ const show = (root, options) => {
 }
 const shown = (root, options) => text(show(root, options))
 
+test('a refused or unreadable durable admission never renders as a started task', () => {
+  for (const content of ['Permissions cannot be copied', '{"key":"../outside"}', '{"taskId":1}', 'not json']) {
+    assert.match(shown(call('create_durable_task', 'admission', { args: { title: 'Inspect' }, content })), /Could not start the task/)
+  }
+  assert.match(shown(call('create_durable_task', 'admission', { content: { key: 'saved' }, isError: true })), /Could not start the task/)
+})
+
 // One finished call of every kind ToolCell draws, and what it shows.
 const BRANCHES = [
+  ['create_durable_task', { args: { title: 'Check fixtures', steps: ['Inspect', 'Summarize'] }, content: { key: 'durable-fixture', title: 'Check fixtures' } }, /Check fixtures.*Preparing task.*View task/],
   ['message_bot', { args: { to: 'Writer' } }, /Messaged.*Writer/],
   ['stop_bot', { args: { bot: 'Writer' } }, /Stopped.*Writer/],
   ['create_bot', { args: { name: 'Writer' } }, /Created.*Writer/],
@@ -227,7 +235,7 @@ const BRANCHES = [
 const rosterFor = callId => team({ questions: { chief: question(callId) }, secretRequests: { chief: [request(callId)] } })
 
 test('every call ToolCell draws shows the same nested in a PTC program as on its own', () => {
-  assert.equal(BRANCHES.length, 15)
+  assert.equal(BRANCHES.length, 16)
   for (const [name, options, expected] of BRANCHES) {
     const native = shown(call(name, 'direct', options), { roster: rosterFor('direct') })
     assert.match(native, expected, `${name} on its own`)

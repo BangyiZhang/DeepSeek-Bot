@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { stripWrittenCalls, writesToolCall } from '../src/host/turns.js'
+import { install as installResume } from '../src/host/resume.js'
 
 // Chief in its own chat 'a'; Writer, the admin of group 'r1', speaks there from 'gb'.
 const seed = () => ({
@@ -91,6 +92,21 @@ const run = (host, sessionId, turn, message) => {
   host.emit(sessionId, 'turn/start', { turn })
   host.emit(sessionId, 'user/message', { content: message.content, source: message.source })
 }
+
+test('Pi result callbacks have one recovery owner and stay outside legacy queued resends', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-durable-report-'))
+  const ctx = fakeContext()
+  const delivered = []
+  const rt = { ctx, home, readOnly: () => undefined, chatOf: id => id,
+    deliver: async args => { delivered.push(args); return args.exchangeId }, warn() {} }
+  installResume(rt)
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.deliver({ role: 'durable', toId: 'chief', text: 'Saved result', exchangeId: 'durable-report' })
+  await rt.deliver({ role: 'request', toId: 'chief', text: 'Ordinary work', exchangeId: 'ordinary' })
+  await settle(() => notes(home).queued.chief?.length === 1)
+  assert.deepEqual(notes(home).queued.chief.map(item => item.args.exchangeId), ['ordinary'])
+  assert.deepEqual(delivered.map(item => item.exchangeId), ['durable-report', 'ordinary'])
+})
 
 // Starts a round in 'r1' and opens Writer's turn in 'gb'.
 async function openRoomTurn(t, host) {

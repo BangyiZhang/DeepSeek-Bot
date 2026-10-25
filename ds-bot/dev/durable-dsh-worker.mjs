@@ -113,6 +113,33 @@ async function createSession() {
   throw new Error(`No mock-backed DSH model could be selected; catalog=${JSON.stringify(catalog)}; ${selectionError ?? 'no DeepSeek API models were listed'}`)
 }
 
+async function sessionSnapshot(sessionId, includeSchemas = false) {
+  const agent = await agentOf(sessionId)
+  const throughSeq = Number(agent.session.seq) - 1
+  const events = []
+  let beforeSeq
+  if (throughSeq >= 0) for (let count = 0; count < 128; count += 1) {
+    const page = await ctx.sessionController.page({
+      address: { kind: 'session', sessionId }, throughSeq,
+      ...(beforeSeq === undefined ? {} : { beforeSeq }), maxMessages: 256,
+    }, AbortSignal.timeout(15_000))
+    if (!Array.isArray(page?.records)) throw new Error('Incomplete isolated session snapshot')
+    events.unshift(...page.records.map(record => record.event))
+    if (page.hasMore === false) break
+    if (page.hasMore !== true || page.records.length === 0 || count === 127) throw new Error('Incomplete isolated session snapshot')
+    beforeSeq = page.records[0].event?.seq
+  }
+  const schemas = ctx.tools.schemas(agent)
+  const names = new Set([...ctx.tools.schemas(), ...schemas].map(schema => schema.name))
+  return {
+    sessionId, status: agent.status, cwd: agent.session.header.cwd,
+    toolNames: schemas.map(schema => schema.name),
+    callableToolNames: [...names].filter(name => ctx.tools.get(name, agent) !== undefined),
+    ...(includeSchemas ? { toolSchemas: schemas } : {}), events,
+    inbox: [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])],
+  }
+}
+
 async function checkListener(key) {
   const entry = listeners.get(key)
   if (!entry || entry.checking || stopping) return
@@ -151,6 +178,7 @@ async function command(message) {
   if (stopping) throw new Error('Worker is stopping')
   if (type === 'api') return send({ type: 'api-result', id, result: await api(message.endpoint, message.payload) })
   if (type === 'create') return send({ type: 'created', id, sessionId: await createSession() })
+  if (type === 'snapshot') return send({ type: 'snapshot', id, ...await sessionSnapshot(message.sessionId, message.includeSchemas === true) })
   const { requestId } = message
   if (type === 'inspect') return send({ type: 'inspection', id, ...await executor.inspect(message) })
   if (type !== 'run') throw new Error('Unknown command')

@@ -19,7 +19,7 @@ test('relay headers with brackets in a Bot or group name leave the body intact',
 })
 
 test('a single-line relay keeps its inline body, including later brackets', () => {
-  for (const header of ['[Message from Writer]', '[Group post from Writer]', '[Bot team setup]']) {
+  for (const header of ['[Message from Writer]', '[Group post from Writer]', '[Bot team setup]', '[Durable task update]']) {
     assert.equal(stripHeader(`${header} Hello [team]`), ' Hello [team]')
     assert.equal(stripHeader(header), '')
   }

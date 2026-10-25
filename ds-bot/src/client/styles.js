@@ -904,6 +904,22 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think-text[data-fade=top]{mask-image:linear-gradient(to bottom,transparent,#000 18px)}
 .bt-think-text[data-fade=bottom]{mask-image:linear-gradient(to top,transparent,#000 18px)}
 .bt-think-text[data-fade=both]{mask-image:linear-gradient(to bottom,transparent,#000 18px,#000 calc(100% - 18px),transparent)}
+.bt-durable-chat{box-sizing:border-box;width:min(100%,480px);margin:8px 0;padding:12px 14px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);color:var(--bt-ink);font-size:12px;line-height:18px}
+.bt-durable-chat-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.bt-durable-chat-head strong{font-size:13px;font-weight:500;overflow-wrap:anywhere;min-width:0}
+.bt-durable-chat-status{flex:none;color:var(--bt-ink-2)}
+.bt-durable-chat-progress{display:flex;align-items:center;gap:12px;margin-top:8px;color:var(--bt-ink-2)}
+.bt-durable-chat-progress>span{flex:none}
+.bt-durable-chat progress{appearance:none;min-width:40px;flex:1;width:100%;height:4px;overflow:hidden;border:0;border-radius:999px;background:var(--bt-hover)}
+.bt-durable-chat progress::-webkit-progress-bar{background:var(--bt-hover)}
+.bt-durable-chat progress::-webkit-progress-value{background:var(--bt-accent);border-radius:999px}
+.bt-durable-chat progress::-moz-progress-bar{background:var(--bt-accent);border-radius:999px}
+.bt-durable-chat[data-kind=completed] progress::-webkit-progress-value{background:var(--bt-ink-3)}
+.bt-durable-chat[data-kind=completed] progress::-moz-progress-bar{background:var(--bt-ink-3)}
+.bt-durable-chat p{margin:8px 0 0;color:var(--bt-ink-2)}
+.bt-durable-chat-actions{display:flex;align-items:center;gap:8px;margin-top:8px}
+.bt-durable-chat-actions button{min-height:28px;cursor:pointer;color:var(--bt-ink-2)}
+.bt-durable-chat-actions button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-event{display:flex;justify-content:center;align-items:center;gap:2px;min-height:24px;margin:2px 0;font-size:12px;line-height:16px;color:var(--bt-ink-2);flex-wrap:wrap}
 .bt-event>span{padding:0 2px}
 .bt-event button:not(.bt-soft){border:0;background:none;color:inherit;font:inherit;display:inline-flex;align-items:center;gap:4px;cursor:pointer;height:24px;padding:4px 6px 4px 4px;border-radius:999px;box-sizing:border-box;transition:background-color .12s ease}

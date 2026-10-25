@@ -18,6 +18,7 @@ import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { layoutOf, thinkingShown } from './themes.js'
+import { durableAdmission, DurableChatTask } from './durable-chat.js'
 
 export { clockLabel }
 
@@ -555,6 +556,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       if (source.role === 'report') {
         return h(GroupEvent, { prefix: t('Replies from'), room: roster.roomsById[source.roomId], name: t('a group chat'), roster, actions })
       }
+      if (source.role === 'durable') return h('div', { className: 'bt-event' }, t('Durable task update received'))
       // A request carried on keeps its role, but its message line was shown already.
       if (source.role === 'resume' || source.resumed === true) return h('div', { className: 'bt-event' }, t('Picked up its work after a restart'))
       if (source.role === 'retry' || source.retried === true) return h('div', { className: 'bt-event' }, t('Asked to make the tool call it wrote as text'))
@@ -725,6 +727,9 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t('Updating {name}', { name: target?.name ?? t('a Bot') }), state: 'sending' }
     }
     case 'list_bots': return { label: t('Checking the team'), state: 'searching' }
+    case 'create_durable_task': return { label: t('Starting a durable task'), state: 'working' }
+    case 'get_durable_task':
+    case 'list_durable_tasks': return { label: t('Checking task progress'), state: 'searching' }
     case 'read_group_chat': return { label: t('Reading {name}', { name: arg('group') ?? t('a group chat') }), state: 'searching' }
     case 'read_own_chat': return { label: t('Looking back through the chat'), state: 'searching' }
     case 'remember': return { label: t('Saving to memory'), state: 'working' }
@@ -842,7 +847,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'ask_user_question', 'show_view', 'read_group_chat', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'ask_user_question', 'show_view', 'read_group_chat', 'remember', 'forget', 'create_durable_task'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'show_view'])
 
@@ -879,6 +884,13 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
   const { text: arg, value: argValue } = toolArgs(call)
   const self = roster.byId[sessionId]
   switch (tool) {
+    case 'create_durable_task': {
+      if (!done) return null
+      const result = contentText(call.content)
+      const admission = call.isError ? null : durableAdmission(result)
+      if (!admission) return h('div', { className: 'bt-event bt-error', title: result }, t('Could not start the task'))
+      return h(DurableChatTask, { admission, title: arg('title'), stepCount: argValue('steps')?.length, actions })
+    }
     case 'message_bot': {
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
       if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't message {name}", { name: target.name }))

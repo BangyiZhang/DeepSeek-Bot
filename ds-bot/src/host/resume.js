@@ -20,6 +20,7 @@ export const resumeText = record => [
   'DeepSeek Harness restarted while you were working on this, so your last turn stopped before it finished.',
   record.approval ? `You were waiting for the user's approval to run ${record.approval.tool || 'a tool'}${record.approval.reason ? ` (${record.approval.reason})` : ''}; that request is gone, so ask again if you still need it.` : '',
   'Check what is already done (files, commands, messages) before you repeat anything, then finish the task and give your reply.',
+  'If you already created a durable task, use list_durable_tasks or get_durable_task to check it. Do not create another task or repeat its actions; its saved result returns automatically.',
 ].filter(Boolean).join(' ')
 
 // The trigger fields a resumed turn needs to answer the same sender.
@@ -99,6 +100,8 @@ export function install(rt) {
 
   const deliver = rt.deliver
   rt.deliver = async (args) => {
+    // Pi's receipt ledger owns these callbacks, including the send/flush crash gap.
+    if (args.role === 'durable') return deliver(args)
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
     // Noted before it is sent: a turn may take it up before the send returns.
@@ -199,7 +202,7 @@ export function install(rt) {
       if (rt.isBotSession(sessionId)) return sessionId
       return args.roomId === undefined ? rt.chatOf(args.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId]
     }
-    const fresh = list.filter(item => Date.now() - item.at < QUEUED_KEPT_MS && rt.botOf(item.args?.toId) !== undefined
+    const fresh = list.filter(item => item.args?.role !== 'durable' && Date.now() - item.at < QUEUED_KEPT_MS && rt.botOf(item.args?.toId) !== undefined
       && current(item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
     if (fresh.length === 0) return
     const target = current(fresh[0].args)

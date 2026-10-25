@@ -74,3 +74,25 @@ test('unmatched startup activity is observed without dispatch and has a bounded 
   await stuck.runtime.submit(job())
   assert.equal((await stuck.runtime.wait('job')).state.outcome.error.code, 'NEEDS_RECONCILIATION')
 })
+
+test('an execution-scope failure retains completed stages without leaking unexpected diagnostics', async t => {
+  let sent = false
+  const b = await bench(t, {
+    inspect: async input => ({ status: input.sessionId === 'first' && sent ? 'completed' : 'absent', result: 'Saved first result' }),
+    dispatch: async input => {
+      if (input.sessionId === 'first') { sent = true; return }
+      throw Object.assign(new Error('The original permission preset changed; review the task'), { code: 'DURABLE_SCOPE_CHANGED' })
+    },
+  })
+  await b.runtime.submit({ key: 'scope-error', steps: ['first', 'second'].map(sessionId => ({ sessionId, prompt: 'Check fixture' })) })
+  const record = await b.runtime.wait('scope-error')
+  assert.equal(record.state.outcome.error.code, 'NEEDS_RECONCILIATION')
+  assert.equal(record.state.outcome.error.completed, 1)
+  assert.deepEqual(record.state.outcome.error.results, ['Saved first result'])
+  assert.match(record.state.outcome.error.message, /permission preset changed/)
+  const unknown = await bench(t, { inspect: async () => { throw new Error('Private adapter diagnostics') }, dispatch: async () => assert.fail('Unexpected dispatch') })
+  await unknown.runtime.submit(job())
+  const failed = await unknown.runtime.wait('job')
+  assert.equal(failed.state.outcome.error.code, 'NEEDS_RECONCILIATION')
+  assert.doesNotMatch(failed.state.outcome.error.message, /Private adapter diagnostics/)
+})

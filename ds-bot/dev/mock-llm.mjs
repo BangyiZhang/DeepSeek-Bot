@@ -132,7 +132,8 @@ function decide(body) {
       && textBlocks(message.content).some(value => value.startsWith('Side note:'))).length
     return [text(`Side note: ${pairs} earlier pair(s) seen.`)]
   }
-  const durableRequest = [...messages].reverse().filter(message => message.role === 'user').map(message => /\[DS Bot durable request ([a-zA-Z0-9_.:-]+)\]/.exec(textOf(message.content))?.[1]).find(Boolean)
+  const durableInput = [...messages].reverse().filter(message => message.role === 'user').map(message => textOf(message.content)).find(value => /\[DS Bot durable request ([a-zA-Z0-9_.:-]+)\]/.test(value))
+  const durableRequest = /\[DS Bot durable request ([a-zA-Z0-9_.:-]+)\]/.exec(durableInput ?? '')?.[1]
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
   const isMain = system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
@@ -189,13 +190,19 @@ function decide(body) {
     return [text(note(sections))]
   }
 
-  // A stopped call's result can share a message with the next group turn, which wins.
-  const fresh = textBlocks(last?.content).some(value => value.trimStart().startsWith('[Group chat'))
+  // A stopped call's result can share a message with a fresh group turn or saved
+  // task callback. The newly delivered message owns that turn.
+  const fresh = textBlocks(last?.content).some(value => value.trimStart().startsWith('[Group chat') || value.trimStart().startsWith('[Durable task update]'))
   const result = fresh ? undefined : blocks.find(block => block.type === 'tool_result')
   if (result) {
     const resultText = typeof result.content === 'string' ? result.content : textOf(result.content)
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
+    const durableChatStage = /Durable chat stage 1 ([a-zA-Z0-9-]+)/.exec(durableInput ?? '')
+    if (durableChatStage && ((used?.name === 'read' && used.input?.file_path === 'chat-facts.txt')
+      || (used?.name === 'run_code' && used.input?.code?.includes("tools.read({ file_path: 'chat-facts.txt' })")))) {
+      return [text(`Durable chat stage 1 ${durableChatStage[1]} finished; owner context ${(system + '\n' + durableInput).includes('DURABLE_CHAT_OWNER_CONTEXT') ? 'present' : 'missing'}; earlier result absent; team tools ${tools.has('list_bots') || tools.has('create_durable_task') ? 'present' : 'absent'}; fixture ${!result.is_error && resultText.includes('DURABLE_CHAT_FIXTURE_FACT') ? 'read' : 'not read'}.`)]
+    }
     // "长任务 N [K]": N steps in one turn, each adding about K thousand characters (default 4).
     const openerAt = messages.findLastIndex(m => m.role === 'user' && !isResults(m) && /^长任务\s*\d+/.test(textOf(m.content).trimStart()))
     if (openerAt !== -1 && used?.name === 'list_bots') {
@@ -233,6 +240,9 @@ function decide(body) {
       return Object.assign([text(STEP_LINES[at - 1]), tool(used.name, { pattern: `${STEPPED_WORK}-${at + 1}-${stepped[2]}-*` })], { delay: wait })
     }
     switch (used?.name) {
+      case 'create_durable_task': return [text(result.is_error ? `Durable chat creation refused: ${resultText}` : `Durable chat task accepted: ${resultText}`)]
+      case 'list_durable_tasks':
+      case 'get_durable_task': return [text(`Durable chat query: ${resultText}`)]
       case 'group_relay': return [text('')]
       case 'create_bot': {
         const name = used.input.name
@@ -285,6 +295,10 @@ function decide(body) {
   }
 
   const userText = textOf(last?.content).trim()
+  if (userText.startsWith('[Durable task update]')) {
+    const key = /^Task key: (.+)$/m.exec(userText)?.[1] ?? 'unknown'
+    return [text(`Durable chat report ${key}: ${userText.includes('Status: completed') ? 'completed' : 'needs review'}; ${userText.includes('owner context present') ? 'owner context present' : 'owner context missing'}; ${userText.includes('earlier result present') ? 'saved results received' : 'saved results absent'}.`)]
+  }
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
   // A file in the message (a long Bot message, a file the user sent): DSH gives its saved
@@ -567,7 +581,25 @@ function decide(body) {
   if (card && tools.has('ask_user')) {
     return [text(filler(Number(card[1] ?? 4) * 1000, '卡片前')), tool('ask_user', { question: '接下来先做哪个？', options: ['写正文', '改标题', '先停'] })]
   }
-  if (durableRequest) return tools.has('list_bots') ? [tool('list_bots', {})] : [text(`Durable result ${durableRequest}: completed without team tools`)]
+  // A fresh workspace can append its instruction snapshot to the user message.
+  const durableCommand = userText.trim().split('\n')[0].trim()
+  const durableChat = /^Durable chat fixture ([a-zA-Z0-9-]+)/i.exec(durableCommand)
+  if (durableChat && tools.has('create_durable_task')) return [text('I will save this task and work through its two stages.'), tool('create_durable_task', {
+    title: `Durable chat ${durableChat[1]}`,
+    steps: [`Durable chat stage 1 ${durableChat[1]}: collect the fixture facts.`, `Durable chat stage 2 ${durableChat[1]}: summarize the saved first-stage result.`],
+  })]
+  if (/^Durable chat list$/i.test(durableCommand) && tools.has('list_durable_tasks')) return [tool('list_durable_tasks', {})]
+  const durableResume = /^Durable chat resume ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
+  if (durableResume && tools.has('create_durable_task')) return [tool('create_durable_task', { key: durableResume[1] })]
+  const durableGet = /^Durable chat get ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
+  if (durableGet && tools.has('get_durable_task')) return [tool('get_durable_task', { key: durableGet[1] })]
+  if (durableRequest) {
+    const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText)
+    if (chatStage?.[1] === '1' && tools.has('read')) return [tool('read', { file_path: 'chat-facts.txt' })]
+    if (chatStage?.[1] === '1' && tools.has('run_code')) return [tool('run_code', { description: 'Read the fixture facts', code: "console.log(await tools.read({ file_path: 'chat-facts.txt' }))" })]
+    if (chatStage) return [text(`Durable chat stage ${chatStage[1]} ${chatStage[2]} finished; owner context ${(system + '\n' + userText).includes('DURABLE_CHAT_OWNER_CONTEXT') ? 'present' : 'missing'}; earlier result ${userText.includes(`Durable chat stage 1 ${chatStage[2]} finished`) ? 'present' : 'absent'}; team tools ${tools.has('list_bots') || tools.has('create_durable_task') ? 'present' : 'absent'}.`)]
+    return tools.has('list_bots') ? [tool('list_bots', {})] : [text(`Durable result ${durableRequest}: completed without team tools`)]
+  }
   if (/团队|班底|team/i.test(userText) && tools.has('list_bots')) return [tool('list_bots', {})]
   if (/想想|思考|think/i.test(userText)) {
     return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]

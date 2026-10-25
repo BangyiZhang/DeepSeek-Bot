@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { homeLock } from '../home-lock.js'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
@@ -7,6 +7,32 @@ import { Harness, createRegistry, defineDoc, defineExtension, defineTask } from 
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node'
 
 const openedDatabases = new Set()
+const objectWith = (value, fields) => value !== null && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).every(key => fields.includes(key))
+const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256
+
+export function validateChatContext(origin, execution) {
+  if (origin === undefined && execution === undefined) return {}
+  if (!objectWith(origin, ['botId', 'sessionId', 'roomId']) || !identifier(origin.botId) || !identifier(origin.sessionId)
+    || (origin.roomId !== undefined && !identifier(origin.roomId))) throw new Error('Invalid durable task origin')
+  if (!objectWith(execution, ['cwd', 'permission', 'permissionSpec', 'instructions', 'allowedTools', 'effort'])
+    || typeof execution.cwd !== 'string' || !isAbsolute(execution.cwd) || execution.cwd.length > 4096
+    || (execution.permission !== null && (typeof execution.permission !== 'string' || !execution.permission || execution.permission.length > 128))
+    || typeof execution.permissionSpec !== 'string' || execution.permissionSpec.length > 4096
+    || typeof execution.instructions !== 'string' || execution.instructions.length > 16000
+    || !Array.isArray(execution.allowedTools) || execution.allowedTools.length > 1024
+    || execution.allowedTools.some(name => typeof name !== 'string' || !name || name.length > 256)
+    || new Set(execution.allowedTools).size !== execution.allowedTools.length
+    || (execution.effort !== undefined && (typeof execution.effort !== 'string' || !execution.effort || execution.effort.length > 128))) {
+    throw new Error('Invalid durable execution context')
+  }
+  return {
+    origin: { botId: origin.botId, sessionId: origin.sessionId, ...(origin.roomId === undefined ? {} : { roomId: origin.roomId }) },
+    execution: { cwd: execution.cwd, permission: execution.permission, permissionSpec: execution.permissionSpec, instructions: execution.instructions,
+      allowedTools: [...execution.allowedTools],
+      ...(execution.effort === undefined ? {} : { effort: execution.effort }) },
+  }
+}
 
 export async function openDurableRuntime({ database, executor, pollMs = 250, observeMs = 15000, checkpoint = () => {}, onReport = () => {} }) {
   const Jobs = defineDoc({ kind: 'ds-bot.durable.jobs', version: 1, scope: 'session', history: 'latest', fork: 'initial', initial: () => ({ items: {} }), checkpointWhen: () => true })
@@ -37,11 +63,20 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     if (runtime.now() - since >= observeMs) return runtime.commit(() => fail('The DSH execution could not be matched to this task; review it before retrying.', undefined, state), ctx)
     return runtime.sleepUntil(runtime.now() + pollMs, { ...state, observingSince: since }, ctx)
   }
+  const stage = execute => async (task, runtime, ctx) => {
+    try { return await execute(task, runtime, ctx) } catch (error) {
+      const message = error?.code === 'DURABLE_SCOPE_CHANGED' && typeof error.message === 'string'
+        ? error.message.slice(0, 500) : 'DSH execution could not be safely confirmed; review this task before continuing.'
+      return runtime.commit(() => fail(message, undefined, task.state.checkpoint), ctx)
+    }
+  }
+  const failureReason = (record, fallback) => record.reason === 'scope_changed'
+    ? 'The original working folder, permission preset, or available tools changed; review this task before continuing.' : fallback
   const Task = defineTask({
     name: 'ds-bot.durable.workflow', version: 1,
     initial: () => ({ phase: 'check', step: 0, results: [], sent: false }),
     phases: {
-      check: async (task, runtime, ctx) => {
+      check: stage(async (task, runtime, ctx) => {
         const input = inputFor(task)
         const record = await executor.inspect(input)
         if (record.reason === 'unmatched_activity') return observe(task, runtime, ctx)
@@ -51,9 +86,9 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
           return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, phase: 'send' } }), ctx)
         }
         if (record.status === 'running') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
-        return runtime.commit(() => fail(`DSH request ${input.requestId} needs reconciliation (${record.status}).`, undefined, task.state.checkpoint), ctx)
-      },
-      send: async (task, runtime, ctx) => {
+        return runtime.commit(() => fail(failureReason(record, `DSH request ${input.requestId} needs reconciliation (${record.status}).`), undefined, task.state.checkpoint), ctx)
+      }),
+      send: stage(async (task, runtime, ctx) => {
         const input = inputFor(task)
         const record = await executor.inspect(input)
         if (record.reason === 'unmatched_activity') return observe(task, runtime, ctx)
@@ -64,11 +99,11 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
           if (receipt?.reason === 'unmatched_activity') return observe(task, runtime, ctx)
           if (receipt?.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
           if (receipt?.status === 'completed') return finish(task, runtime, ctx, receipt.result ?? '')
-          if (receipt?.status === 'uncertain' || receipt?.status === 'interrupted') return runtime.commit(() => fail(`DSH request ${input.requestId} was not admitted (${receipt.status}).`, undefined, task.state.checkpoint), ctx)
+          if (receipt?.status === 'uncertain' || receipt?.status === 'interrupted') return runtime.commit(() => fail(failureReason(receipt, `DSH request ${input.requestId} was not admitted (${receipt.status}).`), undefined, task.state.checkpoint), ctx)
         }
-        else if (record.status !== 'running') return runtime.commit(() => fail(`DSH request ${input.requestId} cannot be safely dispatched (${record.status}).`, undefined, task.state.checkpoint), ctx)
+        else if (record.status !== 'running') return runtime.commit(() => fail(failureReason(record, `DSH request ${input.requestId} cannot be safely dispatched (${record.status}).`), undefined, task.state.checkpoint), ctx)
         return runtime.sleepUntil(runtime.now() + pollMs, { ...task.state.checkpoint, phase: 'check', sent: true }, ctx)
-      },
+      }),
     },
     // This first integration does not claim that aborting a Pi task stops DSH tools.
     abort: async (_task, runtime, ctx) => runtime.commit(() => fail('DSH cancellation has not been confirmed.', 'CANCEL_UNCONFIRMED'), ctx),
@@ -98,12 +133,13 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
   }
   const taskId = async key => { const items = (await harness.snapshot(Jobs, context))?.items; return items && Object.hasOwn(items, key) ? items[key].taskId : undefined }
   const validKey = key => key !== '__proto__' && typeof key === 'string' && /^[a-zA-Z0-9_.-]{1,100}$/.test(key)
-  const prepareCreate = async ({ key, title, prompts, model, agentId }) => {
+  const prepareCreate = async ({ key, title, prompts, model, agentId, origin, execution }) => {
     if (!validKey(key)) throw new Error('Invalid durable request key')
     if (typeof title !== 'string' || !title.trim() || title.length > 120) throw new Error('Supply a task title of at most 120 characters')
     if (!Array.isArray(prompts) || prompts.length < 1 || prompts.length > 20 || prompts.some(prompt => typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32000)) throw new Error('Supply 1 to 20 phase instructions')
     if (typeof model !== 'string' || !model.includes('/') || model.length > 256 || (agentId !== undefined && (typeof agentId !== 'string' || !agentId))) throw new Error('Supply a model and valid DSH Agent')
-    const spec = { title: title.trim(), prompts: prompts.map(prompt => prompt.trim()), model, requestedAgentId: agentId ?? null }
+    const spec = { title: title.trim(), prompts: prompts.map(prompt => prompt.trim()), model, requestedAgentId: agentId ?? null,
+      ...validateChatContext(origin, execution) }
     const signature = createHash('sha256').update(JSON.stringify(spec)).digest('hex')
     await root.commit(async tx => {
       const jobs = await tx.doc(Jobs)
@@ -141,6 +177,31 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
     }, context)
     return getCreate(key)
   }
+  // The receipt is committed before DSH admission. A restart reconciles this exact
+  // target even if the Bot has moved on to a fresh conversation part meanwhile.
+  const beginNotification = async (key, { sessionId, exchangeId }) => {
+    if (!validKey(key) || !identifier(sessionId) || !identifier(exchangeId)) throw new Error('Invalid durable notification receipt')
+    return root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const record = jobs.creates && Object.hasOwn(jobs.creates, key) ? jobs.creates[key] : undefined
+      if (!record?.origin || !Object.hasOwn(jobs.items, key)) throw new Error('No chat task to notify')
+      if (record.notification) return { started: false, notification: { ...record.notification } }
+      record.notification = { status: 'attempting', sessionId, exchangeId }
+      return { started: true, notification: { ...record.notification } }
+    }, context)
+  }
+  const settleNotification = async (key, { status, exchangeId }) => {
+    if (!['queued', 'delivered', 'needs_reconciliation', 'unavailable'].includes(status)) throw new Error('Invalid durable notification status')
+    return root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const record = jobs.creates && Object.hasOwn(jobs.creates, key) ? jobs.creates[key] : undefined
+      const notification = record?.notification
+      if (!notification || notification.exchangeId !== exchangeId) throw new Error('Unknown durable notification receipt')
+      if (notification.status === 'delivered' && status !== 'delivered') throw new Error('A delivered durable notification cannot be reopened')
+      notification.status = status
+      return { ...notification }
+    }, context)
+  }
   const submit = async ({ key, steps }) => {
     if (key === '__proto__' || typeof key !== 'string' || !/^[a-zA-Z0-9_.-]{1,100}$/.test(key)) throw new Error('Invalid durable request key')
     if (!Array.isArray(steps) || steps.length < 1 || steps.length > 20 || steps.some(step => !step || typeof step.sessionId !== 'string' || !step.sessionId || typeof step.prompt !== 'string' || !step.prompt.trim() || step.prompt.length > 32000)) throw new Error('Supply 1 to 20 DSH steps with a sessionId and prompt')
@@ -165,7 +226,8 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
   }
   harness.resume()
   return {
-    submit, prepareCreate, getCreate, updateCreateAllocation,
+    submit, prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
+    async getNotification(key) { return (await getCreate(key))?.notification },
     async get(key) { const id = await taskId(key); return id === undefined ? undefined : harness.getTask(id, context) },
     async wait(key) { const id = await taskId(key); if (id === undefined) throw new Error('Unknown durable request'); return harness.waitForTask(id, context) },
     async list() { const jobs = await harness.snapshot(Jobs, context); return [...new Set([...Object.keys(jobs?.items ?? {}), ...Object.keys(jobs?.creates ?? {})])] },

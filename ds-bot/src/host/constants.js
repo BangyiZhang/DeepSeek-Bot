@@ -68,6 +68,7 @@ export const TEAM_TOOLS = [
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability',
+  'create_durable_task', 'get_durable_task', 'list_durable_tasks',
 ]
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
