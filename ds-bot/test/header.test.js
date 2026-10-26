@@ -58,6 +58,28 @@ test('the Bot header has no right sidebar button', () => {
   assert.equal(sideButton(header({})), null)
 })
 
+test('Bot and group headers retain their compact avatar, name and details chevron', () => {
+  const room = { id: 'room', name: 'Design', members: ['a'] }
+  for (const [name, data, avatarProp] of [
+    ['Chief', roster, 'bot'],
+    ['Design', { ...roster, byId: {}, roomsById: { a: room } }, 'room'],
+  ]) {
+    for (const details of [undefined, 'a']) {
+      let opened = null
+      const pill = header({ toggleDetails: id => { opened = id } }, { useRoster: hook(data), useUi: hook({ details }) }).children[0]
+      const [avatar, label, , chevron] = pill.children
+      assert.equal(avatar.props.className, 'bt-pill-avatar')
+      assert.equal(avatar.children[0].props.size, 24)
+      assert.ok(avatar.children[0].props[avatarProp])
+      assert.equal(label.children[0], name)
+      assert.equal(chevron.props.className, 'bt-pill-go')
+      assert.equal(pill.props['aria-expanded'], details === 'a')
+      pill.props.onClick()
+      assert.equal(opened, 'a')
+    }
+  }
+})
+
 test('a Bot in another Conversation View can return to chat without changing its draft', () => {
   const state = { view: 'study-workspace', draft: 'Keep this draft', viewRequest: null }
   const views = [{ id: 'chat' }, { id: 'study-workspace' }]

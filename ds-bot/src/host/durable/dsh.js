@@ -7,7 +7,8 @@ const marker = requestId => `[DS Bot durable request ${requestId}]`
 const textOf = content => typeof content === 'string' ? content
   : Array.isArray(content) ? content.filter(block => block?.type === 'text').map(block => block.text ?? '').join('\n') : ''
 const sourceOf = message => `${message?.source?.kind ?? 'unknown'}:${message?.source?.form ?? 'unknown'}`
-const matches = (message, requestId) => textOf(message?.content).startsWith(`${marker(requestId)}\n`)
+export const matchesDurableInput = (message, requestId) => textOf(message?.content).startsWith(`${marker(requestId)}\n`)
+export const isExecutionContext = message => contextSources.has(sourceOf(message))
 const queued = agent => [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
 const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value)
 
@@ -65,7 +66,7 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
     let foreignInputs = 0
     for (const event of records) {
       if (event?.type === 'turn/start') currentTurn = event.data?.turn
-      if (event?.type === 'user/message' && matches(event.data, requestId)) {
+      if (event?.type === 'user/message' && matchesDurableInput(event.data, requestId)) {
         inputs += 1
         found = true
         turn = currentTurn
@@ -81,8 +82,8 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
       }
     }
     const inbox = queued(agent)
-    const waiting = inbox.some(message => matches(message, requestId))
-    const foreignQueued = inbox.some(message => !matches(message, requestId) && !contextSources.has(sourceOf(message)))
+    const waiting = inbox.some(message => matchesDurableInput(message, requestId))
+    const foreignQueued = inbox.some(message => !matchesDurableInput(message, requestId) && !contextSources.has(sourceOf(message)))
     const status = inputs > 1 || foreignInputs > 0 || foreignQueued ? 'uncertain' : ended === 'completed' ? 'completed'
       : ended !== undefined ? 'interrupted' : found ? (agent.status === 'running' ? 'running' : 'interrupted')
         : waiting ? 'running' : agent.status === 'idle' ? 'absent' : 'uncertain'

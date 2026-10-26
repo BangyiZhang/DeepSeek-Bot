@@ -107,7 +107,7 @@ export function install(rt) {
     const agent = record(agentId)
     if (agent.sessions.includes(sessionId)) return sessionId
     await rt.resolveAgent(sessionId)
-    const owned = rt.selfOf(sessionId) !== undefined || rt.botOf(sessionId) !== undefined
+    const owned = rt.durableOwnerOf?.(sessionId) !== undefined || rt.selfOf(sessionId) !== undefined || rt.botOf(sessionId) !== undefined
       || rt.roomOf(sessionId) !== undefined || agentOf(sessionId) !== undefined
     if (owned) throw new Error('Session already belongs to the team')
     agent.sessions.push(sessionId)

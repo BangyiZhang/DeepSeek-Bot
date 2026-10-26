@@ -152,7 +152,7 @@ async function createFromChat(botId, tag) {
   return until(async () => {
     const refused = rows().slice(before).flatMap(row => row.out ?? []).find(block => block.type === 'text' && block.text.startsWith('Durable chat creation refused:'))
     if (refused) throw new Error(refused.text)
-    return (await api('durable-state')).jobs.find(job => job.title === `Durable chat ${tag}`)
+    return (await api('durable-state')).jobs.find(job => job.title === `Durable chat ${tag}` && job.taskId !== null)
   }, `chat-created ${tag} task`)
 }
 const notificationInputs = (state, key) => state.events.filter(event => event.type === 'user/message'
@@ -188,7 +188,7 @@ async function verifyStages(job, tag, expectedCwd, { historicalBeforeStage = 0 }
     assert.equal(inspection.inputs, 1)
     const current = await snapshot(job.sessionIds[stage])
     assert.equal(current.cwd, expectedCwd)
-    const forbidden = [...TEAM_TOOLS, 'create_goal', 'get_goal', 'update_goal', 'ask_user_question']
+    const forbidden = [...TEAM_TOOLS.filter(name => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities'].includes(name)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question']
     const requests = rows().filter(row => row.session === job.sessionIds[stage])
     assert.ok(requests.length > 0, 'Each phase must have actual model request evidence')
     for (const request of requests) {
@@ -233,6 +233,33 @@ try {
   assert.equal((await api('durable-state')).jobs.length, initialJobs)
   console.log('PASS: ordinary short Bot chat replies directly without creating a durable workflow')
 
+  await sendChat(main.id, '记住 BOT_MEMORY_PROBE: preserve the checked fixtures.')
+  await waitForIdle(main.id)
+  await sendChat(main.id, 'BOT_CHAT_PROBE: keep the original archive intact.')
+  await waitForIdle(main.id)
+  await api('capability-save', { name: 'taskcap', kind: 'mcp', description: 'Bot task echo fixture', transport: 'stdio', command: process.execPath, args: [resolve(root, 'ds-bot/dev/mcp-echo-server.mjs')], env: {} })
+  await api('capability-save', { name: 'taskskill', kind: 'skill', description: 'BOT_TASK_SKILL_PROBE', content: 'Use only the assigned fixture and preserve the original archive.' })
+  await api('bot-capability', { botId: main.id, name: 'taskcap', attached: true })
+  await api('bot-capability', { botId: main.id, name: 'taskskill', attached: true })
+  const contextual = await createFromChat(main.id, 'context')
+  const contextualDone = await finished(contextual.key)
+  await verifyStages(contextualDone, 'context', fixtureFolder)
+  assert.equal(contextualDone.botManaged, true)
+  assert.equal(contextualDone.origin.botId, main.id)
+  const rosterAfter = await api('state')
+  assert.equal(rosterAfter.agents.some(agent => agent.sessions.some(id => contextualDone.sessionIds.includes(id))), false)
+  const phase = await snapshot(contextualDone.sessionIds[0])
+  const output = phase.events.filter(event => event.type === 'tool/result' || event.type === 'tool/ptc-dispatch').map(event => JSON.stringify(event.data)).join('\n')
+  assert.match(output, /BOT_MCP_PROBE/)
+  assert.match(output, /BOT_MEMORY_PROBE/)
+  assert.match(output, /BOT_CHAT_PROBE/)
+  assert.ok(phase.events.some(event => event.type === 'user/message' && JSON.stringify(event.data).includes('taskskill')), 'Worker receives its Bot skill catalog')
+  const firstInput = phase.events.find(event => event.type === 'user/message' && textOf(event.data.content).includes(`[DS Bot durable request ${contextual.key}:0]`))
+  assert.match(textOf(firstInput.data.content), /BOT_CHAT_PROBE/)
+  assert.match(textOf(firstInput.data.content), /BOT_MEMORY_PROBE/)
+  await waitForReport(main.id, contextual.key)
+  console.log('PASS: Bot-owned sessions inherit chat/memory, execute the attached MCP, read owner context through tools, and receive the attached skill catalog without joining DSH Agent')
+
   const alpha = await createFromChat(main.id, 'alpha')
   assert.match(alpha.key, /^chat-/)
   const alphaDone = await finished(alpha.key)
@@ -258,7 +285,7 @@ try {
   await sendChat(main.id, `Durable chat resume ${alpha.key}`)
   await until(() => rows().slice(resumeAt).some(row => hasOutput(row, /^Durable chat task accepted:/)), 'resume saved key without duplicate work')
   await waitForIdle(main.id)
-  assert.equal((await api('durable-state')).jobs.length, initialJobs + 1)
+  assert.equal((await api('durable-state')).jobs.length, initialJobs + 2)
   assert.equal((await finished(alpha.key)).taskId, alphaDone.taskId)
   const afterResume = await snapshot(await chatOf(main.id))
   assert.equal(notificationInputs(afterResume, alpha.key).length, 1)
@@ -297,7 +324,7 @@ try {
   console.log('PASS: SIGKILL at a saved phase restores the chat-created workflow and returns the result without repeating completed DSH input or prior chat notifications')
 
   const admitted = await createFromChat(main.id, 'admission')
-  const admissionRequest = await until(() => rows().find(row => row.last?.includes('Durable chat stage 1 admission')
+  const admissionRequest = await until(() => rows().find(row => row.session === admitted.sessionIds[0]
     && row.out?.some(block => block.type === 'tool_use' && ['read', 'run_code'].includes(block.name))), 'first-stage model request before tool dispatch')
   assert.ok(admissionRequest)
   const beforeAdmissionRestart = (await api('durable-state', { key: admitted.key })).jobs[0]
@@ -311,7 +338,7 @@ try {
   const admittedInspection = await rpc('inspect', { sessionId: firstWorkerId, requestId: `${admitted.key}:0` }, 'inspection')
   assert.equal(admittedInspection.inputs, 1)
   const restoredWorker = await snapshot(firstWorkerId)
-  assert.deepEqual(restoredWorker.callableToolNames.filter(name => [...TEAM_TOOLS, 'create_goal', 'get_goal', 'update_goal', 'ask_user_question'].includes(name)), [])
+  assert.deepEqual(restoredWorker.callableToolNames.filter(name => [...TEAM_TOOLS.filter(tool => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities'].includes(tool)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question'].includes(name)), [])
   assert.equal(restoredWorker.callableToolNames.includes('read'), true)
   if (admissionRecovery.state.outcome.status === 'completed') await verifyStages(admissionRecovery, 'admission', fixtureFolder)
   else assert.equal(admissionRecovery.state.outcome.error.code, 'NEEDS_RECONCILIATION')
@@ -330,7 +357,7 @@ try {
   assert.equal(notificationInputs(afterRestart, restarting.key).length, 1)
   assert.equal(notificationInputs(afterRestart, admitted.key).length, 1)
   assert.equal(afterRestart.inbox.some(message => message.source?.role === 'durable'), false)
-  assert.equal((await api('durable-state')).jobs.length, initialJobs + 3)
+  assert.equal((await api('durable-state')).jobs.length, initialJobs + 4)
   console.log('PASS: a second clean Host restart preserves task identities/results and acknowledged chat reports')
   const cancellable = await createFromChat(main.id, 'cancel')
   await until(() => existsSync(resolve(fixtureFolder, 'cancel-started.txt')), 'real cancellable shell process started')

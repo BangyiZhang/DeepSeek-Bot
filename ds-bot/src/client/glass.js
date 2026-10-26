@@ -8,7 +8,7 @@ export const GLASS_SHELL_CSS = `
 :is(.bt-menu,.bt-drop,.bt-avedit,.bt-palette,.bt-settings,.bt-mem){border-radius:20px;corner-shape:superellipse(1.25)}
 
 .bt-tile{width:104px;box-sizing:border-box;padding:12px 10px 10px;gap:6px;border-radius:20px;corner-shape:superellipse(1.25)}
-.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active);box-shadow:inset 0 0 0 2px var(--bt-accent)}
+.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active)}
 .bt-tile:not([aria-current=page]):not(.active):hover{background:var(--bt-hover)}
 .bt-tile[aria-current=page] .bt-tile-name{font-weight:600}
 .bt-tile .bt-chip{max-width:100%;box-sizing:border-box;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;font-size:11px;line-height:16px;color:var(--bt-ink-2)}

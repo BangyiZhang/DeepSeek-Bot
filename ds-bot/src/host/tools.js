@@ -735,7 +735,7 @@ export function install(rt) {
     output,
     async execute(_args, exec) {
       await rt.load()
-      const self = rt.selfOf(exec.agent?.id)
+      const self = rt.selfOf(exec.agent?.id) ?? rt.durableOwnerOf?.(exec.agent?.id)?.botId
       const bot = rt.botOf(self)
       if (!bot) return 'Only Bots on the team can use list_capabilities.'
       const items = Object.values(state.capabilities?.items ?? {})

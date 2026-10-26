@@ -152,6 +152,7 @@ export function install(rt) {
         case 'durable-create':
           return ok(await rt.durableEndpoint(endpoint, body))
         case 'state':
+          await rt.refreshDurableView?.()
           if (typeof body.locale === 'string' && /^[a-z]{2,3}(-[\w-]+)?$/i.test(body.locale)) uiLocale = body.locale
           if (readOnly === undefined) await rt.bootstrap()
           await rt.catalog()
@@ -416,6 +417,7 @@ export function install(rt) {
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
+          if (rt.durableOwnerOf?.(sessionId)) return fail('This is a reserved Bot task session. Send requests to its owning Bot chat.', 'bot/invalid')
           await rt.ensureCapabilities(sessionId)
           await ctx.sessionController.prompt({
             requestId: randomUUID(),

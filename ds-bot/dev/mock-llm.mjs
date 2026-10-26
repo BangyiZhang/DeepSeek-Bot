@@ -198,7 +198,14 @@ function decide(body) {
     const resultText = typeof result.content === 'string' ? result.content : textOf(result.content)
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
-    const durableChatStage = /Durable chat stage 1 ([a-zA-Z0-9-]+)/.exec(durableInput ?? '')
+    const durableChatStage = /Durable chat stage 1 ([a-zA-Z0-9-]+)/.exec((durableInput ?? '').split(/Task stage \d+ of \d+:\n/).at(-1))
+    if (durableChatStage?.[1] === 'context') {
+      const invoke = (name, args) => tools.has(name) ? tool(name, args) : tool('run_code', { code: `console.log(await tools[${JSON.stringify(name)}](${JSON.stringify(args)}))` })
+      const called = name => used?.name === name || (used?.name === 'run_code' && used.input?.code?.includes(name))
+      if (called('mcp__taskcap__echo')) return [invoke('recall', { query: 'BOT_MEMORY_PROBE' })]
+      if (called('recall')) return [invoke('read_own_chat', { query: 'BOT_CHAT_PROBE' })]
+      if (called('read_own_chat')) return [invoke('read', { file_path: 'chat-facts.txt' })]
+    }
     if (durableChatStage && ((durableChatStage[1] === 'pause' && (used?.name === 'bash' || used?.name === 'run_code'))
       || (used?.name === 'read' && used.input?.file_path === 'chat-facts.txt')
       || (used?.name === 'run_code' && used.input?.code?.includes("tools.read({ file_path: 'chat-facts.txt' })")))) {
@@ -608,7 +615,11 @@ function decide(body) {
   const durableGet = /^Durable chat get ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableGet && tools.has('get_durable_task')) return [tool('get_durable_task', { key: durableGet[1] })]
   if (durableRequest) {
-    const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText)
+    const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText.split(/Task stage \d+ of \d+:\n/).at(-1))
+    if (chatStage?.[1] === '1' && chatStage[2] === 'context') {
+      const name = 'mcp__taskcap__echo', args = { text: 'BOT_MCP_PROBE' }
+      return [tools.has(name) ? tool(name, args) : tool('run_code', { code: `console.log(await tools[${JSON.stringify(name)}](${JSON.stringify(args)}))` })]
+    }
     if (chatStage?.[1] === '1' && chatStage[2] === 'pause') {
       const args = { command: 'printf started >> pause-started.txt; sleep 8; printf finished > pause-finished.txt', description: 'Finish the admitted isolated step before pausing' }
       if (tools.has('bash')) return [tool('bash', args)]

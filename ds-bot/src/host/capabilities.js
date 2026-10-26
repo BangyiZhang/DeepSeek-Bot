@@ -338,7 +338,7 @@ export function install(rt) {
     await Promise.all([...desired].map(name => mountOne(agent, bot, agentMounts, name)))
     if (agentMounts.size === 0 && mounts.get(agent) === agentMounts) mounts.delete(agent)
   }
-  const botOfSession = sessionId => (rt.isBotSession(sessionId) ? rt.botOf(rt.selfOf(sessionId)) : undefined)
+  const botOfSession = sessionId => rt.durableCapabilityBot?.(sessionId) ?? (rt.isBotSession(sessionId) ? rt.botOf(rt.selfOf(sessionId)) : undefined)
   // At most one run waits behind the running one; it reads the latest state when it starts.
   const reconcileOne = agent => {
     if (queued.has(agent)) return chains.get(agent)
@@ -445,6 +445,7 @@ export function install(rt) {
     } catch (error) {
       rt.warn('ds-bot: capability group sessions for %s could not be read: %s', bot.id, error)
     }
+    for (const sessionId of rt.durableSessionsOf?.(bot.id) ?? []) sessionIds.add(sessionId)
     for (const sessionId of sessionIds) {
       try {
         trackAgent(await rt.resolveAgent(sessionId))
@@ -504,6 +505,7 @@ export function install(rt) {
       await scheduleReconcile()
     }).catch(error => rt.warn('ds-bot: capability startup failed: %s', error))
     return async () => {
+      await rt.stopDurableTasks?.()
       stopped = true
       const live = [...mounts.values()]
       mounts.clear()
@@ -513,6 +515,19 @@ export function install(rt) {
     }
   }, 'ds-bot: capabilities')
   Object.assign(rt, {
+    capabilityFingerprint: bot => {
+      const names = [...expandCapabilityNames(bot.capabilities, library())].sort()
+      const definitions = [...new Set([...(bot.capabilities ?? []), ...names])].sort().map(name => own(library(), name))
+      return { names: [...(bot.capabilities ?? [])].sort(), digest: createHash('sha256').update(JSON.stringify(definitions)).digest('hex') }
+    },
+    requireCapabilities: async (sessionId, agent) => {
+      if (agent) { trackAgent(agent); await prepare(agent, sessionId) } else await ensureCapabilities(sessionId)
+      const bot = botOfSession(sessionId)
+      if (!bot) throw new Error('Bot capability owner is unavailable')
+      for (const name of expandCapabilityNames(bot.capabilities, library())) {
+        if (sessionStatuses.get(bot.id)?.get(name)?.get(sessionId)?.state !== 'ready') throw new Error(`Capability ${name} is not ready or needs its existing approval`)
+      }
+    },
     capabilitySave,
     capabilityDelete,
     capabilityEndpoint,

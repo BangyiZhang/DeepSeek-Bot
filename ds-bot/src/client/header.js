@@ -11,8 +11,7 @@ import { t } from './i18n.js'
 // -------------------------------------------------------------------------
 // Conversation header
 
-// The chevron flips while conversation details are open.
-const GoChevron = () => h('svg', { width: 14, height: 14, viewBox: '-12 -12 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M-3 -6L3 0L-3 6' }))
+const GoChevron = () => h('svg', { width: 10, height: 14, viewBox: '0 0 10 14', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, h('path', { d: 'M3 3L7 7L3 11' }))
 
 // How long the pill says "Memory updated" after the change reaches this window.
 const MEMORY_NOTICE_MS = 3_200
@@ -100,8 +99,9 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
       title: away ? name : undefined,
       onClick: () => (away ? selectView('chat') : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)),
     },
-    bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
-      : room ? h(RoomAvatar, { room, roster, size: 24 }) : null,
+    bot || room ? h('span', { className: 'bt-pill-avatar' },
+      bot ? h(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== undefined), badge: false })
+        : h(RoomAvatar, { room, roster, size: 24 })) : null,
     h('span', { className: 'bt-pill-name' }, away ? t('Back to chat') : bot?.name ?? room?.name ?? (title || t('New chat'))),
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoChevron))),

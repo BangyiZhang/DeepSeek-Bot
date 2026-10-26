@@ -212,7 +212,7 @@ test('retries reuse a stable admission and saved setup cannot be rewritten', asy
   assert.deepEqual(JSON.parse(await b.execute('create_durable_task', request)), first)
   assert.deepEqual(JSON.parse(await b.execute('create_durable_task', { key: first.key }, b.source, 'new-call')), first)
   assert.equal(b.calls.allocated.length, 2)
-  await assert.rejects(b.execute('create_durable_task', { ...request, title: 'Changed' }), /saved but could not start/)
+  await assert.rejects(b.execute('create_durable_task', { ...request, title: 'Changed' }), /saved but could not start|cannot be changed/)
   await assert.rejects(b.execute('create_durable_task', { key: first.key, steps: ['Changed'] }), /cannot be changed/)
   await assert.rejects(b.execute('create_durable_task', { key: 'invented' }), /belongs to this Bot/)
 })
@@ -242,7 +242,7 @@ test('background callbacks and restart recovery cannot create another task', asy
 test('unsupported permissions and attached capabilities fail before allocating work', async t => {
   for (const options of [{ permission: 'auto' }, { permission: 'custom' }, { capabilities: ['private-mcp'] }]) {
     const b = await bench(t, options)
-    await assert.rejects(b.execute('create_durable_task', request), /configured permission preset|attached capabilities/)
+    await assert.rejects(b.execute('create_durable_task', request), /configured permission preset|capability scope/)
     assert.equal(b.calls.allocated.length, 0)
     assert.equal(b.calls.prompts.length, 0)
   }
@@ -394,4 +394,65 @@ test('continue rechecks the original execution scope instead of granting changed
   assert.equal(failed.state.outcome.error.code, 'NEEDS_RECONCILIATION')
   assert.equal(failed.state.outcome.error.completed, 1)
   assert.equal(b.calls.prompts.length, 1)
+})
+
+test('Bot owns new execution sessions and captures bounded redacted chat and memory once', async t => {
+  const b = await bench(t)
+  b.rt.state.mainBotIds = ['chief']
+  b.rt.redactSecrets = text => text.replaceAll('FIXTURE_PRIVATE_VALUE', '<hidden>')
+  b.rt.memoryContextForTask = async id => { assert.equal(id, 'chief'); return 'MEMORY_OWNER_FACT: use the checked fixture. FIXTURE_PRIVATE_VALUE' }
+  b.rt.eventsBackwards = async function* () {
+    yield { type: 'assistant/message', seq: 4, data: { message: { content: [{ type: 'text', text: 'Recent Bot explanation.' }] } } }
+    yield { type: 'user/message', seq: 3, data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'CHAT_OWNER_FACT: preserve the archive. FIXTURE_PRIVATE_VALUE' }] } }
+    yield { type: 'tool/result', seq: 2, data: { output: 'DO_NOT_COPY_TOOL_OUTPUT' } }
+  }
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  const job = await until(async () => { const job = await state(b, admitted.key); return job.state.status === 'terminal' && job })
+  assert.equal(job.botManaged, true)
+  assert.equal(job.ownerName, 'Chief')
+  assert.deepEqual(b.rt.state.agents.raw.sessions, [])
+  assert.deepEqual(b.rt.durableOwnerOf('worker-1'), { botId: 'chief', sessionId: 'chief' })
+  assert.equal(b.rt.selfOf('worker-1'), undefined, 'Task sessions never masquerade as private-chat segments')
+  assert.match(b.calls.prompts[0].content[0].text, /CHAT_OWNER_FACT[\s\S]*preserve the archive/)
+  assert.match(b.calls.prompts[0].content[0].text, /MEMORY_OWNER_FACT/)
+  assert.doesNotMatch(b.calls.prompts[0].content[0].text, /FIXTURE_PRIVATE_VALUE|DO_NOT_COPY_TOOL_OUTPUT/)
+  b.rt.memoryContextForTask = async () => 'NEW_MEMORY_MUST_NOT_REWRITE_SAVED_CONTEXT'
+  await b.execute('create_durable_task', request)
+  assert.equal(b.calls.allocated.length, 2)
+  assert.equal(b.calls.prompts.length, 2)
+})
+
+test('attached capabilities mount into Bot work sessions and definition drift blocks new tools', async t => {
+  const b = await bench(t, { capabilities: ['fixture-pack'], behavior: 'wait' })
+  let revision = 'a'
+  b.rt.capabilityFingerprint = bot => ({ names: [...bot.capabilities], digest: revision.repeat(64) })
+  b.calls.sourceTools.push('mcp__fixture__echo', 'recall', 'read_own_chat')
+  b.rt.requireCapabilities = async id => {
+    if (id.startsWith('worker-')) b.calls.workerTools.set(id, [...b.calls.workerTools.get(id), 'mcp__fixture__echo', 'recall', 'read_own_chat'])
+  }
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  await until(() => b.calls.prompts.length === 1)
+  assert.equal(b.rt.durableCapabilityBot('worker-1').id, 'chief')
+  assert.equal(b.calls.guards.get('worker-1')({ name: 'mcp__fixture__echo' }), undefined)
+  assert.equal(b.calls.guards.get('worker-1')({ name: 'recall' }), undefined)
+  assert.match(b.calls.guards.get('worker-1')({ name: 'request_desktop_update' }), /not delegated/)
+  await assert.rejects(b.rt.assertBotDurableAvailable('chief'), /unfinished/)
+  await b.rt.assertBotDurableAvailable('peer')
+  revision = 'b'
+  assert.equal(b.rt.durableCapabilityBot('worker-1'), undefined)
+  assert.match(b.calls.guards.get('worker-1')({ name: 'mcp__fixture__echo' }), /scope changed/)
+  const failed = await until(async () => { const job = await state(b, admitted.key); return job.state.status === 'terminal' && job })
+  assert.equal(failed.state.outcome.status, 'failed')
+  assert.equal(b.calls.prompts.length, 1)
+})
+
+test('Settings tasks use the same Bot owner, context and execution path as chat', async t => {
+  const b = await bench(t)
+  b.rt.state.mainBotIds = ['chief']
+  const admitted = await b.rt.durableEndpoint('durable-create', { key: 'settings-owned', title: request.title, prompts: request.steps, model: 'mock/actual', botId: 'chief' })
+  const job = await until(async () => { const job = (await b.rt.durableEndpoint('durable-state', { key: admitted.key })).jobs[0]; return job.state.status === 'terminal' && job })
+  assert.equal(job.origin.botId, 'chief')
+  assert.equal(job.botManaged, true)
+  assert.deepEqual(b.rt.state.agents.raw.sessions, [])
+  await assert.rejects(b.rt.durableEndpoint('durable-create', { key: 'settings-owned', botId: 'peer' }), /different Bot/)
 })

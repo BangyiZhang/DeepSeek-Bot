@@ -236,7 +236,7 @@ export function install(rt) {
     output,
     async execute(args, exec) {
       await rt.load()
-      const botId = rt.selfOf(exec.agent?.id)
+      const botId = rt.selfOf(exec.agent?.id) ?? rt.durableOwnerOf?.(exec.agent?.id)?.botId
       if (botId === undefined || rt.botOf(botId) === undefined) return 'Only Bots on the team have a browser.'
       const result = await channel.read(botId)
       if (result.absent) return NO_BROWSER

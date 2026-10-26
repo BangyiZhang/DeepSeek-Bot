@@ -63,7 +63,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = workKeys(useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
   const away = !running && groups.length > 0
-  const state = botState(running || away, doing, alert)
+  const task = useWork?.(work => work.bots?.[id]?.durable ? work.bots[id] : null)
+  const state = botState(running || away || Boolean(task), doing ?? (task ? 'working' : undefined), alert)
   // A Bot running in its own chat previews what it is doing, like a group's row.
   const runningLine = running && doing ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
@@ -75,7 +76,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away || task ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: active ? 'bt-tile active' : 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
@@ -95,7 +96,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
     runningLine ? h('span', { className: 'bt-row-preview' }, runningLine)
-      : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
+      : task ? h('span', { className: 'bt-row-preview' }, h(Shimmer, null, t('Working on {task}', { task: task.tool })))
+        : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
         : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
           : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)

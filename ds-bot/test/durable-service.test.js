@@ -145,9 +145,9 @@ test('foreign input requires reconciliation and keeps the session protected', as
 })
 
 
-const creation = overrides => ({ key: 'created', title: 'Check fixtures', prompts: ['Inspect the first fixture', 'Summarize the result'], model: 'mock/model', ...overrides })
+const creation = overrides => ({ key: 'created', title: 'Check fixtures', prompts: ['Inspect the first fixture', 'Summarize the result'], model: 'mock/model', agentId: 'raw-agent', ...overrides })
 test('durable-create allocates named sessions and uses the selected DSH model', async t => {
-  const b = await bench(t, { withAgent: false })
+  const b = await bench(t)
   const admission = await b.rt.durableEndpoint('durable-create', creation())
   assert.equal(Number.isSafeInteger(admission.taskId), true)
   const completed = await until(async () => {

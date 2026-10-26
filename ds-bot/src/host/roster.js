@@ -544,6 +544,7 @@ export function install(rt) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
+    await rt.assertBotDurableAvailable?.(id)
     // Before the Bot and its group Sessions leave the state, which the archive reads.
     const archived = rt.archiveBotMemory(id)
     const current = rt.chatOf(id)
@@ -607,6 +608,6 @@ export function install(rt) {
   Object.assign(rt, {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
-    setMain, deleteBot, bootstrap, dropKickoff,
+    setMain, deleteBot: (...args) => rt.withDurableSessionChange ? rt.withDurableSessionChange(() => deleteBot(...args)) : deleteBot(...args), bootstrap, dropKickoff,
   })
 }

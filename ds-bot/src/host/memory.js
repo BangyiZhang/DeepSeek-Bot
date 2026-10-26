@@ -848,9 +848,9 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // Tools.
 
-  const callerOf = (exec) => {
+  const callerOf = (exec, task = false) => {
     const sessionId = exec.agent?.id
-    const bot = rt.botOf(rt.selfOf(sessionId))
+    const bot = rt.botOf(rt.selfOf(sessionId) ?? (task ? rt.durableOwnerOf?.(sessionId)?.botId : undefined))
     return bot === undefined ? undefined : { bot, sessionId, roomId: roomIdOf(sessionId) }
   }
 
@@ -981,7 +981,7 @@ export function install(rt) {
     output,
     async execute(args, exec) {
       await rt.load()
-      const caller = callerOf(exec)
+      const caller = callerOf(exec, true)
       if (caller === undefined) return 'Only Bots on the team keep a memory.'
       const self = caller.bot.id
       const { scopes, error } = readScopes(args.scope, self, caller.roomId)
@@ -1550,6 +1550,13 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
+    memoryContextForTask: botId => {
+      const bot = rt.botOf(botId)
+      if (!bot) throw new Error('Task owner is unavailable')
+      const section = memorySection(bot)
+      if (section.failed) throw new Error('Bot memory could not be read for this task')
+      return section.text
+    },
     memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
     memoryNews: () => Object.fromEntries(news),
   })

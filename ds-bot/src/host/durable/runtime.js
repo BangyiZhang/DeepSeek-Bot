@@ -15,7 +15,13 @@ export function validateChatContext(origin, execution) {
   if (origin === undefined && execution === undefined) return {}
   if (!objectWith(origin, ['botId', 'sessionId', 'roomId']) || !identifier(origin.botId) || !identifier(origin.sessionId)
     || (origin.roomId !== undefined && !identifier(origin.roomId))) throw new Error('Invalid durable task origin')
-  if (!objectWith(execution, ['cwd', 'permission', 'permissionSpec', 'instructions', 'allowedTools', 'effort'])
+  if (!objectWith(execution, ['cwd', 'permission', 'permissionSpec', 'instructions', 'allowedTools', 'effort', 'botManaged', 'capabilities', 'context'])
+    || (execution.botManaged !== undefined && execution.botManaged !== true)
+    || (execution.botManaged === true && (!objectWith(execution.capabilities, ['names', 'digest'])
+      || !Array.isArray(execution.capabilities.names) || execution.capabilities.names.length > 128
+      || execution.capabilities.names.some(name => typeof name !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(name))
+      || !/^[a-f0-9]{64}$/.test(execution.capabilities.digest)
+      || typeof execution.context !== 'string' || execution.context.length > 13000))
     || typeof execution.cwd !== 'string' || !isAbsolute(execution.cwd) || execution.cwd.length > 4096
     || (execution.permission !== null && (typeof execution.permission !== 'string' || !execution.permission || execution.permission.length > 128))
     || typeof execution.permissionSpec !== 'string' || execution.permissionSpec.length > 4096
@@ -30,6 +36,7 @@ export function validateChatContext(origin, execution) {
     origin: { botId: origin.botId, sessionId: origin.sessionId, ...(origin.roomId === undefined ? {} : { roomId: origin.roomId }) },
     execution: { cwd: execution.cwd, permission: execution.permission, permissionSpec: execution.permissionSpec, instructions: execution.instructions,
       allowedTools: [...execution.allowedTools],
+      ...(execution.botManaged ? { botManaged: true, capabilities: { names: [...execution.capabilities.names], digest: execution.capabilities.digest }, context: execution.context } : {}),
       ...(execution.effort === undefined ? {} : { effort: execution.effort }) },
   }
 }

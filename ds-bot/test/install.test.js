@@ -51,6 +51,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool get_durable_task',
     'tool list_durable_tasks',
     'on agent/pre-step (prepend)',
+    'on agent/created',
     'effect ds-bot: durable tasks',
     'effect ds-bot: identity section',
     'prompt bot-identity 640',

@@ -82,6 +82,10 @@ var ZH = {
   "Suggest three activities for a relaxed weekend at home. Keep each idea to one sentence.": "推荐三个适合在家放松的周末活动，每个活动用一句话说明。",
   "Use the saved ideas from the previous step to write a short plan for Saturday and Sunday.": "根据上一步已保存的活动建议，整理一份简短的周六、周日安排。",
   "New durable task": "新建持久任务",
+  "Working on {task}": "正在处理：{task}",
+  "Task owner": "负责此任务的 Bot",
+  "Managed by {name}": "由 {name} 管理",
+  "Open Bot chat": "打开 Bot 聊天",
   "Task name": "任务名称",
   "What would you like to finish?": "这次想完成什么？",
   "No available models": "没有可用模型",
@@ -2151,7 +2155,7 @@ var GLASS_SHELL_CSS = `
 :is(.bt-menu,.bt-drop,.bt-avedit,.bt-palette,.bt-settings,.bt-mem){border-radius:20px;corner-shape:superellipse(1.25)}
 
 .bt-tile{width:104px;box-sizing:border-box;padding:12px 10px 10px;gap:6px;border-radius:20px;corner-shape:superellipse(1.25)}
-.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active);box-shadow:inset 0 0 0 2px var(--bt-accent)}
+.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active)}
 .bt-tile:not([aria-current=page]):not(.active):hover{background:var(--bt-hover)}
 .bt-tile[aria-current=page] .bt-tile-name{font-weight:600}
 .bt-tile .bt-chip{max-width:100%;box-sizing:border-box;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
@@ -2553,7 +2557,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-tile-wrap{display:flex;justify-content:center;padding:20px 0 15px}
 .bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:12px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:not([aria-current=page]):not(.active):hover{background:var(--bt-hover)}
-.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active);box-shadow:inset 0 0 0 2px var(--bt-accent)}
+.bt-tile[aria-current=page],.bt-tile.active,.bt-tile[aria-current=page]:hover,.bt-tile.active:hover{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:400;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 4px;border-radius:4px;background:var(--bt-hover);border:1px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:84px;overflow:hidden;text-overflow:ellipsis}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
@@ -2575,11 +2579,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-connect-wrap{position:relative;display:flex;flex:1 1 auto;min-width:0}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
-.bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-pill{--bt-pill-gap:4px;pointer-events:auto;display:inline-flex;align-items:center;gap:var(--bt-pill-gap);height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-pill:hover{background:color-mix(in srgb,var(--bt-main),#777 9%)}
 .bt-pill:active{transform:scale(.965)}
+.bt-pill-avatar{display:inline-flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px}
 .bt-pill-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.bt-pill-mem{flex:none;display:inline-flex;width:0;margin-left:-8px;overflow:hidden;transition:${spring(SPRING_SHAPE, "width", "margin-left")}}
+.bt-pill-mem{flex:none;display:inline-flex;width:0;margin-left:calc(-1 * var(--bt-pill-gap));overflow:hidden;transition:${spring(SPRING_SHAPE, "width", "margin-left")}}
 .bt-pill[data-memory=updated] .bt-pill-mem{width:var(--bt-mem-w);margin-left:0;transition:${spring(SPRING_STRETCH, "width", "margin-left")}}
 .bt-pill-mem-in{flex:none;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:var(--bt-ink-2);font-size:13px;font-weight:500;opacity:0;filter:blur(6px);transform:translateX(-8px);transition:opacity .14s ease,filter .18s ease,${spring(SPRING_SHAPE, "transform")}}
 .bt-pill-mem-in::before{content:"";flex:none;width:1px;height:14px;margin-right:4px;background:var(--bt-line-2)}
@@ -2591,11 +2596,10 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (prefers-reduced-motion:reduce){.bt-pill-mem,.bt-pill-mem-in{transition:none!important}.bt-pill-mem-in{filter:none;transform:none}.bt-pill[data-memory=updated] .bt-pill-mem-ico{animation:none}}
 .bt-swap{color:var(--bt-ink-3);font-size:12px}
-.bt-pill-go{flex:none;display:inline-flex;align-items:center;justify-content:flex-end;width:0;margin-left:-8px;overflow:hidden;opacity:0;filter:blur(6px);transform:translateX(-6px);color:var(--bt-ink-2);transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},opacity .18s ease,filter .18s ease}
-.bt-pill-go svg{flex:none;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
-.bt-pill:hover .bt-pill-go,.bt-pill:focus-visible .bt-pill-go,.bt-pill[aria-expanded=true] .bt-pill-go{width:18px;margin-left:0;opacity:1;filter:none;transform:none}
-.bt-pill[aria-expanded=true] .bt-pill-go svg{transform:rotate(180deg)}
-.bt-pill[data-memory=updated]:is(:hover,:focus-visible,[aria-expanded=true]) .bt-pill-go{width:0;margin-left:-8px;opacity:0;filter:blur(6px);transform:translateX(-6px)}
+.bt-pill-go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:0;margin-left:calc(-1 * var(--bt-pill-gap));overflow:hidden;opacity:0;filter:blur(6px);transform:translateX(-6px);color:var(--bt-ink-2);transition:width ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},opacity .18s ease,filter .18s ease}
+.bt-pill-go svg{flex:none}
+/* The cue follows conversation details, independently of the left navigation. */
+.bt-pill:not([aria-expanded=true],[data-memory=updated]):is(:hover,:focus-visible) .bt-pill-go{width:10px;margin-left:-2px;opacity:1;filter:none;transform:none}
 @media (prefers-reduced-motion:reduce){.bt-pill,.bt-pill-go,.bt-pill-go svg{transition:none!important}.bt-pill-go{filter:none}.bt-pill:active{transform:none}}
 
 /* The width settings: the share of the column a bubble may take, and the flat text. */
@@ -3378,6 +3382,9 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
    without its copy and branch row; a tail with nothing in it takes no room. */
 [data-turn-tail]>:not([data-slot="conversation.chat.turnTail"]){display:none!important}
 [class*="_flowItem"][data-chat-flow-kind="turn-tail"]:not(:has([data-slot="conversation.chat.turnTail"]:not(:empty))){display:none!important}
+/* Match both sides of a reply; keep the shell's first-message and process grouping. */
+body:not([data-bt-layout=flat]) [data-chat-flow-kind=user]{margin-top:12px!important}
+body:not([data-bt-layout=flat]) [data-chat-flow-kind=assistant-step]{--dsh-chat-flow-gap:12px!important}
 /* Every team Session belongs to a Bot or a group, so a blank one is an empty chat, not
    the shell's new-session hero: no headline, no workspace or mode picker, and the
    composer stays docked at the bottom. */
@@ -7232,7 +7239,8 @@ function Job({ job, actions, refresh, readOnly }) {
   };
   const openSession = (sessionId) => {
     actions.closeSettings?.();
-    actions.openAgentSession?.(sessionId);
+    if (job.botManaged) actions.openSession?.(job.origin.botId);
+    else actions.openAgentSession?.(sessionId);
   };
   return (0, import_react12.createElement)(
     "article",
@@ -7243,6 +7251,7 @@ function Job({ job, actions, refresh, readOnly }) {
       (0, import_react12.createElement)("h4", { className: "bt-durable-job-name" }, job.title || t("Untitled task")),
       (0, import_react12.createElement)("span", { className: "bt-durable-status", "data-kind": summary.kind }, t(summary.label))
     ),
+    job.ownerName ? (0, import_react12.createElement)("div", { className: "bt-set-hint" }, t("Managed by {name}", { name: job.ownerName })) : null,
     (0, import_react12.createElement)("div", { className: "bt-set-hint" }, t("{done} of {count} steps saved", { done: summary.completed, count: summary.count })),
     summary.kind === "pausing" ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("The current step will finish and save before pausing.")) : summary.kind === "paused" && job.origin ? (0, import_react12.createElement)("p", { className: "bt-durable-review" }, t("Saved progress is kept. Say “continue” in this Bot chat to resume.")) : null,
     (0, import_react12.createElement)("progress", { max: Math.max(summary.count, 1), value: summary.completed, "aria-label": t("Saved progress") }),
@@ -7261,12 +7270,13 @@ function Job({ job, actions, refresh, readOnly }) {
       type: "button",
       className: "bt-soft bt-soft-sm bt-durable-session",
       onClick: () => openSession(job.sessionIds[Math.min(summary.completed, job.sessionIds.length - 1)])
-    }, t("Open work chat")) : null
+    }, t(job.botManaged ? "Open Bot chat" : "Open work chat")) : null
   );
 }
 function CreateTask({ roster, onCreated, readOnly }) {
   const available2 = (roster.models ?? []).filter((model2) => !model2.needsKey);
   const defaultModel = roster.byId?.[roster.mainBotId]?.model ?? roster.defaultModel;
+  const [botId, setBotId] = (0, import_react12.useState)(roster.mainBotId ?? roster.bots?.[0]?.id ?? "");
   const [model, setModel] = (0, import_react12.useState)(() => available2.find((entry) => entry.ref === defaultModel)?.ref ?? available2[0]?.ref ?? "");
   const [title, setTitle] = (0, import_react12.useState)("");
   const [prompts, setPrompts] = (0, import_react12.useState)([""]);
@@ -7280,7 +7290,7 @@ function CreateTask({ roster, onCreated, readOnly }) {
   }, []);
   const chosen = available2.some((entry) => entry.ref === model) ? model : available2.find((entry) => entry.ref === defaultModel)?.ref ?? available2[0]?.ref ?? "";
   const locked = Boolean(admission.current && error);
-  const ready = chosen && prompts.every((prompt) => prompt.trim()) && !readOnly;
+  const ready = botId && chosen && prompts.every((prompt) => prompt.trim()) && !readOnly;
   const changeStep = (index, value) => setPrompts((current) => current.map((prompt, at) => at === index ? value : prompt));
   const example = () => {
     setTitle(t("A relaxed weekend"));
@@ -7290,7 +7300,7 @@ function CreateTask({ roster, onCreated, readOnly }) {
   const submit = async (event) => {
     event.preventDefault();
     if (!ready || busy) return;
-    const payload = { title: title.trim() || t("Untitled task"), prompts: prompts.map((prompt) => prompt.trim()), model: chosen };
+    const payload = { botId, title: title.trim() || t("Untitled task"), prompts: prompts.map((prompt) => prompt.trim()), model: chosen };
     const signature = JSON.stringify(payload);
     if (admission.current && admission.current.signature !== signature) {
       setError(t("Clear the form before starting a different task."));
@@ -7322,6 +7332,16 @@ function CreateTask({ roster, onCreated, readOnly }) {
       (0, import_react12.createElement)(
         "fieldset",
         { disabled: busy || readOnly || locked },
+        (0, import_react12.createElement)("label", { className: "bt-durable-field" }, t("Task owner"), (0, import_react12.createElement)(
+          "select",
+          { className: "bt-select", value: botId, onChange: (event) => {
+            const id = event.target.value;
+            setBotId(id);
+            const next = roster.byId?.[id]?.appliedModel ?? roster.byId?.[id]?.model;
+            if (available2.some((entry) => entry.ref === next)) setModel(next);
+          } },
+          (roster.bots ?? []).map((bot) => (0, import_react12.createElement)("option", { key: bot.id, value: bot.id }, bot.name))
+        )),
         (0, import_react12.createElement)(
           "div",
           { className: "bt-durable-fields" },
@@ -8805,7 +8825,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const doing = useActivity((map) => map[id]);
   const groups = workKeys(useGroupWork(useWork, (rooms) => Object.entries(rooms).flatMap(([roomId, entries2]) => entries2.filter((entry) => entry.botId === id).map((entry) => ({ id: roomId, ...doingOf(entry) })))));
   const away = !running && groups.length > 0;
-  const state = botState(running || away, doing, alert);
+  const task = useWork?.((work) => work.bots?.[id]?.durable ? work.bots[id] : null);
+  const state = botState(running || away || Boolean(task), doing ?? (task ? "working" : void 0), alert);
   const runningLine = running && doing ? doingLine(doing) : null;
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t("a group chat"), groups[0], groups.length - 1) : null;
   const waits = workKeys(useWork ? useWork((work) => JSON.stringify(work.waiting?.[id] ?? null)) : "null");
@@ -8816,7 +8837,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     actions.openMenu({ kind: "bot", id, x: event.clientX, y: event.clientY });
   };
   const pinned = bot.pinned === true && !tile;
-  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away ? t("Working") : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
+  const label = [bot.name, main ? t("Main Bot") : "", pinned ? t("Pinned") : "", running || away || task ? t("Working") : "", waitsFor, approval ? t("Waiting for your approval") : alert ? t("Waiting for your answer") : "", unread ? t("Unread activity") : ""].filter(Boolean).join(", ");
   if (tile && wide) {
     return (0, import_react16.createElement)("div", { className: "bt-tile-wrap" }, (0, import_react16.createElement)(
       "button",
@@ -8857,7 +8878,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
       "span",
       { className: "bt-row-body" },
       (0, import_react16.createElement)("span", { className: "bt-row-name" }, (0, import_react16.createElement)("span", { className: "bt-row-title" }, bot.name), pinned ? (0, import_react16.createElement)(PinMark) : null),
-      runningLine ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, runningLine) : awayLine ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, awayLine) : waitsFor ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, preview) : null
+      runningLine ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, runningLine) : task ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, (0, import_react16.createElement)(Shimmer, null, t("Working on {task}", { task: task.tool }))) : awayLine ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, awayLine) : waitsFor ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, waitsFor) : preview ? (0, import_react16.createElement)("span", { className: "bt-row-preview" }, preview) : null
     ) : null,
     wide && unread && !active ? (0, import_react16.createElement)("span", { className: "bt-unread", "aria-hidden": true }) : null
   );
@@ -9609,7 +9630,7 @@ var SIDEBAR_CSS = `
 // src/client/header.js
 var import_react17 = require("react");
 var import_react_dom4 = require("react-dom");
-var GoChevron = () => (0, import_react17.createElement)("svg", { width: 14, height: 14, viewBox: "-12 -12 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react17.createElement)("path", { d: "M-3 -6L3 0L-3 6" }));
+var GoChevron = () => (0, import_react17.createElement)("svg", { width: 10, height: 14, viewBox: "0 0 10 14", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react17.createElement)("path", { d: "M3 3L7 7L3 11" }));
 var MEMORY_NOTICE_MS = 3200;
 var noNews = (select) => select({});
 function useMemoryNotice(ids, useMemoryNews) {
@@ -9697,7 +9718,11 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
         title: away ? name : void 0,
         onClick: () => away ? selectView("chat") : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)
       },
-      bot ? (0, import_react17.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0), badge: false }) : room2 ? (0, import_react17.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
+      bot || room2 ? (0, import_react17.createElement)(
+        "span",
+        { className: "bt-pill-avatar" },
+        bot ? (0, import_react17.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0), badge: false }) : (0, import_react17.createElement)(RoomAvatar, { room: room2, roster, size: 24 })
+      ) : null,
       (0, import_react17.createElement)("span", { className: "bt-pill-name" }, away ? t("Back to chat") : bot?.name ?? room2?.name ?? (title || t("New chat"))),
       (0, import_react17.createElement)(MemoryNotice, { shown: memoryNotice }),
       (0, import_react17.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react17.createElement)(GoChevron))

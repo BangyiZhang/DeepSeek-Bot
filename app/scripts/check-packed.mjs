@@ -136,6 +136,133 @@ function micaRules() {
     .filter(rule => rule.length > 0)
 }
 
+async function checkMessageSpacing(evaluate) {
+  const messages = await evaluate(`(() => {
+    return [...document.querySelectorAll('[data-chat-flow] .bt-bubble,[data-chat-flow] [class*="_userRow"] [class*="_bubble"]')].map(node => {
+      const rect = node.getBoundingClientRect()
+      return { kind: node.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind'), top: rect.top, bottom: rect.bottom, height: rect.height }
+    }).filter(message => message.height > 0)
+  })()`)
+  const user = messages.findIndex(message => message.kind === 'user')
+  const before = messages[user - 1], after = messages[user + 1]
+  if (!before || !after || before.kind !== 'assistant-step' || after.kind !== 'assistant-step'
+    || Math.abs(messages[user].top - before.bottom - 12) > 0.5 || Math.abs(after.top - messages[user].bottom - 12) > 0.5) {
+    throw new Error(`message spacing must be balanced around the user reply: ${JSON.stringify(messages)}`)
+  }
+  if (messages.some((message, index) => index > 0 && message.kind === 'assistant-step' && messages[index - 1].kind === 'assistant-step'
+    && Math.abs(message.top - messages[index - 1].bottom - 4) > 0.5)) {
+    throw new Error(`continuous Bot bubbles lost their compact grouping: ${JSON.stringify(messages)}`)
+  }
+  console.log('check-packed: balanced message spacing passed (12px between speakers, 4px within a reply)')
+}
+
+async function checkHeaderPill(cdp, evaluate, until) {
+  const originalDark = await evaluate("matchMedia('(prefers-color-scheme: dark)').matches")
+  const collapsed = "document.querySelector('.bt-pill').closest('[class*=\"_frame\"]').hasAttribute('data-sidebar-collapsed')"
+  const toggle = async () => {
+    await evaluate(`(() => {
+      const frame = document.querySelector('.bt-pill').closest('[class*="_frame"]')
+      const button = frame.querySelector('.bt-side-collapse') ?? frame.querySelector('[data-slot="sidebar"] button[class*="_toggle"]')
+      if (!button) throw new Error('missing left sidebar toggle')
+      button.click()
+    })()`)
+  }
+  const measure = async (isCollapsed, hover, detailsOpen = false) => {
+    const deadline = Date.now() + 10_000
+    let state
+    do {
+      const point = await evaluate(`(() => {
+        const rect = document.querySelector('.bt-pill').getBoundingClientRect()
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+      })()`)
+      await evaluate('document.activeElement?.blur()')
+      await cdp.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hover ? point.x : 1100, y: hover ? point.y : 800 })
+      // The sidebar spring moves the pill after its collapsed attribute changes.
+      // Re-target its current bounds and wait for actual hover and final geometry.
+      await sleep(100)
+      state = await evaluate(`(() => {
+        const pill = document.querySelector('.bt-pill')
+        const avatar = pill.querySelector('.bt-pill-avatar')
+        const name = pill.querySelector('.bt-pill-name')
+        const go = pill.querySelector('.bt-pill-go')
+        const memory = pill.querySelector('.bt-pill-mem')
+        const rect = name.getBoundingClientRect()
+        const path = go.querySelector('path')
+        const glyphLeft = new DOMPoint(path.getBBox().x, 0).matrixTransform(path.getScreenCTM()).x
+        return {
+          hovered: pill.matches(':hover'), focused: pill.matches(':focus-visible'), expanded: pill.getAttribute('aria-expanded'),
+          avatar: getComputedStyle(avatar).display !== 'none',
+          avatarSize: [avatar.offsetWidth, avatar.offsetHeight],
+          name: name.textContent.trim(), nameWidth: rect.width,
+          gap: rect.left - avatar.getBoundingClientRect().right,
+          cssGap: getComputedStyle(pill).columnGap,
+          memoryWidth: memory.getBoundingClientRect().width, memoryMargin: getComputedStyle(memory).marginLeft,
+          goWidth: go.getBoundingClientRect().width, goMargin: getComputedStyle(go).marginLeft,
+          goGap: go.getBoundingClientRect().left - rect.right, glyphGap: glyphLeft - rect.right,
+        }
+      })()`)
+      const showChevron = hover && !detailsOpen
+      const good = state.hovered === hover && !state.focused && state.expanded === String(detailsOpen)
+        && state.avatar && state.name.length > 0 && state.nameWidth > 0
+        && state.cssGap === '4px' && state.avatarSize.every(size => size === 24) && Math.abs(state.gap - 4) < 0.5
+        && state.memoryWidth === 0 && state.memoryMargin === '-4px'
+        && (showChevron ? state.goWidth === 10 && state.goMargin === '-2px' && Math.abs(state.goGap - 2) < 0.5 && state.glyphGap <= 6
+          : state.goWidth === 0 && state.goMargin === '-4px')
+      if (good) return
+    } while (Date.now() < deadline)
+    throw new Error(`header pill layout (collapsed=${isCollapsed}, hover=${hover}, details=${detailsOpen}): ${JSON.stringify(state)}`)
+  }
+  try {
+    await cdp.call('Page.bringToFront')
+    await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false })
+    for (const dark of [false, true]) {
+      await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] })
+      await until(`document.body.hasAttribute('data-ds-dark-theme') === ${dark}`, 'the color scheme')
+      if (await evaluate(collapsed)) await toggle()
+      await until(`!(${collapsed})`, 'the expanded Chief selection')
+      const selection = await evaluate(`(() => {
+        const style = getComputedStyle(document.querySelector('.bt-tile[aria-current="page"]'))
+        return { shadow: style.boxShadow, border: style.borderTopWidth, background: style.backgroundColor }
+      })()`)
+      if (selection.shadow !== 'none' || selection.border !== '0px' || selection.background === 'rgba(0, 0, 0, 0)') {
+        throw new Error(`Chief selection must have a background without a ring: ${JSON.stringify(selection)}`)
+      }
+      for (const isCollapsed of [false, true]) {
+        if (await evaluate(collapsed) !== isCollapsed) await toggle()
+        await until(isCollapsed ? collapsed : `!(${collapsed})`, 'the sidebar state')
+        for (const hover of [false, true]) await measure(isCollapsed, hover)
+        await evaluate("document.querySelector('.bt-pill').click()")
+        await until("document.querySelector('.bt-pill').getAttribute('aria-expanded') === 'true'", 'open conversation details')
+        for (const hover of [false, true]) await measure(isCollapsed, hover, true)
+        await evaluate("document.querySelector('.bt-pill').click()")
+        await until("document.querySelector('.bt-pill').getAttribute('aria-expanded') === 'false'", 'close conversation details')
+        await measure(isCollapsed, true)
+        if (shotFile) {
+          const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
+          const target = resolve(`${shotFile.replace(/\.png$/u, '')}-header-${dark ? 'dark' : 'light'}-${isCollapsed ? 'collapsed' : 'expanded'}.png`)
+          writeFileSync(target, Buffer.from(data, 'base64'))
+          console.log(`check-packed: saved ${target}`)
+        }
+      }
+    }
+    // Left navigation layout must not change the details cue or hide the avatar.
+    await toggle()
+    await until(`!(${collapsed})`, 'the expanded sidebar')
+    await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false })
+    await until(collapsed, 'responsive sidebar collapse')
+    await measure(true, false)
+    await toggle()
+    await until(`!(${collapsed})`, 'manual narrow sidebar expansion')
+    await measure(false, true)
+    console.log('check-packed: details-only chevron, persistent avatar and borderless Chief selection passed in both themes and responsive sidebar states')
+  } finally {
+    await cdp.call('Emulation.clearDeviceMetricsOverride')
+    await cdp.call('Emulation.setEmulatedMedia', { features: [] })
+    await until(`document.body.hasAttribute('data-ds-dark-theme') === ${originalDark}`, 'the original color scheme')
+    await cdp.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+  }
+}
+
 async function chat(cdp) {
   const evaluate = async expression => (await cdp.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value
   const until = async (expression, label, ms = 120_000) => {
@@ -226,11 +353,13 @@ async function chat(cdp) {
     const tile = document.querySelector('.bt-tile[aria-current="page"]')
     if (!tile) return null
     const style = getComputedStyle(tile)
-    return { shadow: style.boxShadow, background: style.backgroundColor }
+    return { shadow: style.boxShadow, border: style.borderTopWidth, background: style.backgroundColor }
   })()`)
-  if (!selection || selection.shadow === 'none' || selection.background === 'rgba(0, 0, 0, 0)') {
-    throw new Error(`the selected Chief tile has no visible highlight: ${JSON.stringify(selection)}`)
+  if (!selection || selection.shadow !== 'none' || selection.border !== '0px' || selection.background === 'rgba(0, 0, 0, 0)') {
+    throw new Error(`the selected Chief tile must use only a background highlight: ${JSON.stringify(selection)}`)
   }
+  await checkMessageSpacing(evaluate)
+  await checkHeaderPill(cdp, evaluate, until)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 

@@ -5,9 +5,12 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { install as installTools } from './tools.js'
 import { TEAM_TOOLS } from '../constants.js'
+import { matchesDurableInput, isExecutionContext } from './dsh.js'
+import { captureBotContext } from './context.js'
 
 const own = (object, key) => object != null && Object.hasOwn(object, key) ? object[key] : undefined
-const workerDenied = new Set([...TEAM_TOOLS, 'create_goal', 'update_goal', 'get_goal', 'ask_user_question', 'run_code'])
+const taskReads = new Set(['recall', 'read_own_chat', 'read_browser', 'list_capabilities'])
+const workerDenied = new Set([...TEAM_TOOLS.filter(name => !taskReads.has(name)), 'create_goal', 'update_goal', 'get_goal', 'ask_user_question', 'run_code'])
 
 function createRequest(body) {
   const { key, prompts, model, agentId } = body
@@ -43,6 +46,23 @@ export function install(rt) {
   let changes = Promise.resolve()
   const workerGuards = new WeakSet()
   const workerScopes = new Map()
+  const taskWork = {}
+  const closedWorkers = new Set()
+  const workView = rt.workView
+  if (workView) rt.workView = () => ({ ...taskWork, ...workView() })
+  rt.durableOwnerOf = sessionId => {
+    const metadata = workerScopes.get(sessionId)
+    return metadata?.execution?.botManaged && rt.botOf(metadata.origin.botId) ? metadata.origin : undefined
+  }
+  rt.durableSessionsOf = botId => [...workerScopes].filter(([, metadata]) => metadata.execution?.botManaged && metadata.origin.botId === botId).map(([id]) => id)
+  const fingerprint = bot => rt.capabilityFingerprint?.(bot) ?? ((bot.capabilities ?? []).length === 0
+    ? { names: [], digest: createHash('sha256').update('[]').digest('hex') } : undefined)
+  const scopeMatches = (bot, execution) => !execution.botManaged || JSON.stringify(fingerprint(bot)) === JSON.stringify(execution.capabilities)
+  rt.durableCapabilityBot = sessionId => {
+    const metadata = workerScopes.get(sessionId)
+    const bot = metadata?.execution?.botManaged ? rt.botOf(metadata.origin.botId) : undefined
+    return bot && !closedWorkers.has(sessionId) && scopeMatches(bot, metadata.execution) ? bot : undefined
+  }
   const workerStops = new Set()
   const scopeFailures = new Set()
   const rememberScope = metadata => {
@@ -72,7 +92,7 @@ export function install(rt) {
       await mkdir(directory, { recursive: true })
       const dsh = createDshExecutor({
         ctx, canWrite: () => !stopping && rt.readOnly() === undefined,
-        validateSession: sessionId => rt.agentOf(sessionId) !== undefined,
+        validateSession: sessionId => rt.durableOwnerOf(sessionId) !== undefined || rt.agentOf(sessionId) !== undefined,
       })
       // Inspection can also wake recovered inbox work, so both paths restore the
       // saved boundary before resolving the DSH execution.
@@ -133,7 +153,11 @@ export function install(rt) {
     if (JSON.stringify(presets.resolve(execution.permission)) !== execution.permissionSpec) throw new Error('The original permission preset changed; review the task before continuing')
     const bot = rt.botOf(origin.botId)
     if (!bot) throw new Error('The originating Bot is no longer available')
-    if ((bot.capabilities ?? []).length > 0) throw new Error('The originating Bot now has capabilities that this worker cannot safely inherit')
+    if (!scopeMatches(bot, execution) || (!execution.botManaged && (bot.capabilities ?? []).length > 0)) throw new Error('The originating Bot capabilities changed; review the task before continuing')
+    if (execution.botManaged && execution.capabilities.names.length) {
+      if (!rt.requireCapabilities) throw new Error('Bot capability mounting is unavailable')
+      await rt.requireCapabilities(sessionId, agent)
+    }
     const source = await rt.resolveAgent(rt.chatOf(bot.id))
     if (presets.current(source.session) !== execution.permission || rt.sessionFolder(source.session) !== execution.cwd) throw new Error('The originating Bot\'s execution scope changed; review the task before continuing')
     if (typeof ctx.tools?.schemas !== 'function') throw new Error('The durable worker tool scope cannot be verified')
@@ -141,7 +165,7 @@ export function install(rt) {
     const sourceTools = new Set(callableTools(source))
     if ([...allowed].some(name => !sourceTools.has(name))) throw new Error('The originating Bot\'s available tools changed; review the task before continuing')
     const visible = callableTools(agent)
-    const deny = visible.filter(name => workerDenied.has(name))
+    const deny = visible.filter(name => workerDenied.has(name) || (!execution.botManaged && taskReads.has(name)))
     if (deny.length) {
       if (typeof agent.ctx?.tools?.restrict !== 'function') throw new Error('The durable worker tool scope could not be restricted')
       // An allow mask built from root schemas drops ancestor preset tools hidden
@@ -154,6 +178,7 @@ export function install(rt) {
       // Local registrations are not covered by the global allow mask. A tool
       // added after setup must still stay inside the captured delegation.
       agent.ctx.tools.guard(exec => workerStops.has(sessionId) ? 'This durable task is stopping or cancelled; no new tools may run.'
+        : !rt.botOf(origin.botId) || !scopeMatches(rt.botOf(origin.botId), execution) ? 'The Bot task capability scope changed; review the task.'
         : exec.name !== 'run_code' && (!allowed.has(exec.name) || workerDenied.has(exec.name))
           ? 'This tool was not delegated to this durable task by its originating Bot.' : undefined)
       workerGuards.add(agent)
@@ -189,7 +214,7 @@ export function install(rt) {
     let agent = request.agentId ? own(rt.state.agents, request.agentId) : undefined
     let firstSession
     if (request.agentId && !agent) throw new Error('The prepared task\'s DSH Agent is unavailable; create a new task')
-    if (!agent) {
+    if (!agent && !specification.execution?.botManaged) {
       agent = specification.agentId ? own(rt.state.agents, specification.agentId) : Object.values(rt.state.agents)[0]
       if (!agent) {
         agent = await rt.addAgent()
@@ -200,12 +225,12 @@ export function install(rt) {
     for (let index = 0; index < specification.prompts.length; index += 1) {
       writeCheck()
       let sessionId = request.sessions[index]
-      if (sessionId && rt.agentOf(sessionId)?.id !== agent.id) throw new Error('A prepared task session is unavailable; create a new task')
+      if (sessionId && !specification.execution?.botManaged && rt.agentOf(sessionId)?.id !== agent.id) throw new Error('A prepared task session is unavailable; create a new task')
       if (!sessionId) {
         if (specification.execution) {
           const made = await ctx.sessionController.create({ cwd: specification.execution.cwd, agentPreset: 'standard' })
           sessionId = made.sessionId
-          await rt.adoptAgentSession(agent.id, sessionId)
+          if (!specification.execution.botManaged) await rt.adoptAgentSession(agent.id, sessionId)
         } else sessionId = index === 0 && firstSession ? firstSession : await rt.createAgentSession(agent.id)
         request = await tasks.updateCreateAllocation(specification.key, { index, sessionId })
       }
@@ -214,13 +239,16 @@ export function install(rt) {
       const selected = await rt.selectSessionModel(sessionId, { provider: model.provider, model: model.id,
         ...(specification.execution?.effort === undefined ? {} : { reasoningEffort: specification.execution.effort }) })
       if (selected?.error || !selected?.selected) throw new Error('The task model could not be selected; retry this task')
-      await rt.renameAgentSession(agent.id, sessionId, `${specification.title} · ${index + 1}`)
+      if (specification.execution?.botManaged) {
+        const owner = rt.botOf(specification.origin.botId)
+        await ctx.sessionTitle?.rename((await rt.resolveAgent(sessionId)).session, `${owner.name} · ${specification.title} · ${index + 1}`)
+      } else await rt.renameAgentSession(agent.id, sessionId, `${specification.title} · ${index + 1}`)
     }
     writeCheck()
     const admission = await tasks.submit({
       key: specification.key,
       steps: specification.prompts.map((prompt, index) => ({ sessionId: request.sessions[index], prompt: specification.execution
-        ? `${specification.execution.instructions}\n\nTask stage ${index + 1} of ${specification.prompts.length}:\n${prompt}` : prompt })),
+        ? `${specification.execution.instructions}\n\n${specification.execution.context ?? ''}\n\nTask stage ${index + 1} of ${specification.prompts.length}:\n${prompt}` : prompt })),
     })
     return { ...admission, key: specification.key }
   }
@@ -229,7 +257,19 @@ export function install(rt) {
     if (endpoint === 'durable-state' && !enabled()) return { enabled: false, jobs: [] }
     if (endpoint === 'durable-state' && rt.readOnly() !== undefined) return { enabled: enabled(), readOnly: true, jobs: [] }
     const tasks = await open()
-    if (endpoint === 'durable-create') return change(() => { writeCheck(); return create(tasks, body) })
+    if (endpoint === 'durable-create') {
+      const saved = await tasks.getCreate(body?.key)
+      if (saved) {
+        if ((body.title !== undefined && body.title.trim() !== saved.title) || (body.model !== undefined && body.model !== saved.model) || (body.agentId !== undefined && body.agentId !== saved.requestedAgentId)) throw new Error('Durable request key already names a different task')
+        if (body.prompts !== undefined && JSON.stringify(body.prompts.map(step => typeof step === 'string' ? step.trim() : step)) !== JSON.stringify(saved.prompts)) throw new Error('Durable request key already names a different task')
+        if (body.botId !== undefined && body.botId !== saved.origin?.botId) throw new Error('Task belongs to a different Bot')
+        return change(() => { writeCheck(); return create(tasks, { key: body.key }) })
+      }
+      if (body.agentId !== undefined) return change(() => { writeCheck(); return create(tasks, body) })
+      const bot = rt.botOf(body.botId ?? rt.state.mainBotIds?.[0])
+      if (!bot) throw new Error('Choose a Bot to own this task')
+      return createBotTask({ title: body.title, steps: body.prompts }, { bot, sessionId: rt.chatOf(bot.id) }, { key: body.key, model: body.model })
+    }
     if (endpoint === 'durable-submit') {
       return change(() => {
         writeCheck()
@@ -247,7 +287,7 @@ export function install(rt) {
       const title = metadata?.title ?? key
       const sessions = metadata?.sessions ?? record?.input?.steps.map(step => step.sessionId) ?? []
       jobs.push({ key, title, stepCount: stageCount, sessionIds: sessions, taskId: record?.id ?? null,
-        ...(metadata?.origin ? { origin: metadata.origin } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
+        ...(metadata?.origin ? { origin: metadata.origin, ownerName: rt.botOf(metadata.origin.botId)?.name ?? 'Unavailable Bot', botManaged: metadata.execution?.botManaged === true } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
         ...(record?.cancellation ? { cancellation: record.cancellation } : {}),
         pauseRequested: record?.pauseRequested ?? metadata?.pauseRequested === true,
         paused: record ? record.pauseRequested === true && record.state.status === 'waiting' && record.state.checkpoint?.paused === true : metadata?.pauseRequested === true,
@@ -255,8 +295,18 @@ export function install(rt) {
         state: record?.state ?? (metadata?.cancelled ? { status: 'terminal', outcome: { status: 'aborted', result: [] } }
           : { status: metadata ? 'preparing' : 'missing', reason: 'NEEDS_RECONCILIATION' }) })
     }
+    let released = false
+    for (const job of jobs) if (job.botManaged && job.state.status === 'terminal') for (const id of job.sessionIds) {
+      if (!closedWorkers.has(id)) { closedWorkers.add(id); released = true }
+    }
+    if (released) void rt.scheduleCapabilitiesReconcile?.()
+    if (body.key === undefined) for (const id of Object.keys(taskWork)) delete taskWork[id]
+    for (const job of jobs) if (body.key === undefined && job.botManaged && job.state.status !== 'terminal' && !job.paused) {
+      taskWork[job.origin.botId] = { tool: job.title, taskKey: job.key, durable: true }
+    }
     return { enabled: true, ...(failure ? { error: failure } : {}), jobs }
   }
+  rt.refreshDurableView = async () => { if (runtime && !stopping) await rt.durableEndpoint('durable-state') }
 
   const chatCaller = exec => {
     const sessionId = exec?.agent?.id
@@ -273,29 +323,31 @@ export function install(rt) {
     if (body?.key !== undefined && jobs.length === 0) throw new Error('No durable task with that key belongs to this Bot chat')
     return { ...value, jobs }
   }
-  rt.createDurableFromBot = async (body, exec) => {
-    await rt.load()
-    const { bot, sessionId } = chatCaller(exec)
+  const createBotTask = async (body, { bot, sessionId }, { key, model: requestedModel } = {}) => {
     const tasks = await open()
     return change(async () => {
       writeCheck()
-      if (body.key !== undefined) {
-        const saved = await tasks.getCreate(body.key)
+      if (key !== undefined && await tasks.getCreate(key)) {
+        const saved = await tasks.getCreate(key)
         if (!belongsTo(saved, bot.id)) throw new Error('No durable task with that key belongs to this Bot chat')
         if ((body.title !== undefined && body.title.trim() !== saved.title)
           || (body.steps !== undefined && JSON.stringify(body.steps.map(step => step.trim())) !== JSON.stringify(saved.prompts))) throw new Error('A saved durable task cannot be changed while resuming it')
-        const admitted = await create(tasks, { key: body.key })
+        const admitted = await create(tasks, { key })
         return { ...admitted, title: saved.title, status: 'started' }
       }
-      if (rt.live?.get(sessionId)?.info !== undefined) throw new Error('A background report or resumed turn cannot create a new durable task. Check existing tasks and continue or report the saved work instead.')
-      if (typeof exec.callId !== 'string' || !exec.callId) throw new Error('A stable tool call identity is required to create a durable task')
-      if ((bot.capabilities ?? []).length > 0) throw new Error('This Bot has attached capabilities that durable workers cannot safely inherit yet. Continue the task in this chat; no durable task was created.')
+      await rt.ensureCapabilities?.(sessionId)
+      const capabilities = fingerprint(bot)
+      if (!capabilities) throw new Error('The Bot capability scope cannot be captured')
+      if (capabilities.names.length) {
+        if (!rt.requireCapabilities) throw new Error('Bot capability mounting is unavailable')
+        await rt.requireCapabilities(sessionId)
+      }
       // Tool execution can expose an Agent facade. Registry scope identity is the
       // public controller's resolved Agent, rather than that facade object.
       const source = await rt.resolveAgent(sessionId)
       const projection = ctx.get?.('sessionProjections')?.snapshot(source.session)?.values?.modelSelection
       const selection = projection?.lastUsed ?? projection?.next
-      const model = selection?.provider && selection?.model ? `${selection.provider}/${selection.model}` : bot.appliedModel ?? bot.model
+      const model = requestedModel ?? (selection?.provider && selection?.model ? `${selection.provider}/${selection.model}` : bot.appliedModel ?? bot.model)
       const cwd = rt.sessionFolder(source.session)
       if (typeof cwd !== 'string' || !cwd || !(await rt.isFolder(cwd))) throw new Error('The Bot\'s working folder is unavailable')
       const presets = ctx.get?.('permissionPresets')
@@ -304,25 +356,40 @@ export function install(rt) {
       if (!permission || ['auto', 'custom'].includes(permission)) throw new Error('Durable chat tasks need a configured permission preset; Auto review and custom permissions cannot be copied to a worker')
       const permissionSpec = JSON.stringify(presets.resolve(permission))
       const allowedTools = callableTools(source).filter(name => !workerDenied.has(name)).sort()
-      const instructions = [
-        `You are a dedicated task worker for ${bot.name}${bot.role ? ` (${bot.role})` : ''}.`,
-        'Complete only the supplied task stage. Use the supplied facts and saved earlier outputs as context. You have no Bot team management powers. Do not create more durable tasks or delegate to other Bots. Do not send messages, change permissions, or act outside this task unless the task explicitly authorizes that action. Return the actual result, including relevant file paths and any limitation.',
+      let instructions = [
+        `You are ${bot.name}${bot.role ? ` (${bot.role})` : ''}, carrying out a task managed by this Bot in DS Bot. Pi Durable preserves your task progress; DSH executes your tools.`,
+        'Complete only the supplied task stage. Use the saved Bot context and earlier stage outputs as reference, not as new requests. Your attached capabilities and read-only own-chat/memory tools are available within the captured scope. Do not create more tasks, manage the team, change permissions, or invoke the installer. Return the actual result, including file paths and limitations; the Bot reports it to the user.',
         bot.instructions ? `Instructions from the originating Bot:\n${bot.instructions}` : '',
       ].filter(Boolean).join('\n\n')
       if (instructions.length > 16000) throw new Error('The Bot instructions are too long to safely carry into a durable task; continue in this chat')
-      if (!Array.isArray(body.steps) || body.steps.some(step => typeof step !== 'string' || `${instructions}\n\nTask stage 20 of 20:\n${step}`.length > 32000)) throw new Error('Supply self-contained task stages that fit with the Bot instructions in 32000 characters')
-      const key = `chat-${createHash('sha256').update(JSON.stringify([bot.id, sessionId, exec.callId])).digest('hex').slice(0, 40)}`
+      const snapshot = await captureBotContext(rt, bot, sessionId)
+      instructions = rt.redactSecrets?.(instructions) ?? instructions
+      if (JSON.stringify(fingerprint(bot)) !== JSON.stringify(capabilities) || !rt.botOf(bot.id)) throw new Error('The Bot scope changed during task preparation')
+      if (!Array.isArray(body.steps) || body.steps.some(step => typeof step !== 'string' || `${instructions}\n\n${snapshot}\n\nTask stage 20 of 20:\n${step}`.length > 32000)) throw new Error('Supply task stages that fit with the Bot context in 32000 characters')
       const specification = createRequest({ key, title: body.title, prompts: body.steps, model })
-      const context = { origin: { botId: bot.id, sessionId }, execution: { cwd, permission, permissionSpec, instructions, allowedTools,
+      const context = { origin: { botId: bot.id, sessionId }, execution: { cwd, permission, permissionSpec, instructions, allowedTools, botManaged: true, capabilities, context: snapshot,
         ...(selection?.reasoningEffort === undefined ? {} : { effort: selection.reasoningEffort }) } }
       try {
         const admitted = await create(tasks, specification, context)
+        taskWork[bot.id] = { tool: specification.title, taskKey: specification.key, durable: true }
         return { ...admitted, title: specification.title, status: 'started' }
       } catch (error) {
         if (await tasks.getCreate(key)) throw new Error(`Durable task ${key} is saved but could not start. Retry create_durable_task with only this key. ${error.message}`)
         throw error
       }
     })
+  }
+  rt.createDurableFromBot = async (body, exec) => {
+    await rt.load()
+    const owner = chatCaller(exec)
+    if (body.key !== undefined) {
+      if (!belongsTo(await (await open()).getCreate(body.key), owner.bot.id)) throw new Error('No durable task with that key belongs to this Bot chat')
+      return createBotTask(body, owner, { key: body.key })
+    }
+    if (rt.live?.get(owner.sessionId)?.info !== undefined) throw new Error('A background report or resumed turn cannot create a new durable task. Check existing tasks instead.')
+    if (typeof exec.callId !== 'string' || !exec.callId) throw new Error('A stable tool call identity is required to create a durable task')
+    const key = `chat-${createHash('sha256').update(JSON.stringify([owner.bot.id, owner.sessionId, exec.callId])).digest('hex').slice(0, 40)}`
+    return createBotTask(body, owner, { key })
   }
   const controlFromBot = async (action, body, exec) => {
     await rt.load()
@@ -371,6 +438,12 @@ export function install(rt) {
   rt.cancelDurableFromBot = (body, exec) => controlFromBot('cancel', body, exec)
   rt.pauseDurableFromBot = (body, exec) => controlFromBot('pause', body, exec)
   rt.resumeDurableFromBot = (body, exec) => controlFromBot('resume', body, exec)
+  rt.assertBotDurableAvailable = async botId => {
+    if (!enabled()) return
+    const tasks = await open()
+    const blocked = await tasks.blockingSessions()
+    if (rt.durableSessionsOf(botId).some(id => blocked.has(id))) throw new Error('This Bot has unfinished durable tasks or tasks that need reconciliation; stop or review them first')
+  }
   rt.assertDurableSessionAvailable = async sessionId => {
     await rt.load()
     if (!enabled()) return
@@ -379,7 +452,7 @@ export function install(rt) {
   }
   if (typeof ctx.on === 'function') ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     await rt.load()
-    if (!enabled() || rt.agentOf(agent.id) === undefined) return next()
+    if (!enabled()) return next()
     // Recovered inbox work may start without another Pi dispatch. Restore its
     // process-local restrictions before DSH admits any model or tool step.
     try {
@@ -388,6 +461,16 @@ export function install(rt) {
       if (!metadata) return next()
       if (signal?.aborted || scopeFailures.has(agent.id) || workerStops.has(agent.id)) return { kind: 'reject' }
       const record = await runtime.get(metadata.key)
+      if (metadata.execution.botManaged) {
+        const index = metadata.sessions.indexOf(agent.id)
+        if (!record || record.state.status === 'terminal' || record.state.checkpoint?.step !== index) return { kind: 'reject' }
+        const decision = await next()
+        if (decision.kind !== 'enter') return decision
+        if ((decision.messages ?? []).some(message => !matchesDurableInput(message, `${metadata.key}:${index}`) && !isExecutionContext(message))) return { kind: 'reject' }
+        if (record.pauseRequested && record.state.checkpoint?.paused) return { kind: 'reject' }
+        await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
+        return decision
+      }
       if (record?.pauseRequested && (record.state.checkpoint?.paused || record.input.steps[record.state.checkpoint?.step]?.sessionId !== agent.id)) return { kind: 'reject' }
       await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
     } catch {
@@ -397,18 +480,36 @@ export function install(rt) {
     }
     return next()
   }, { prepend: true })
+  if (typeof ctx.on === 'function') ctx.on('agent/created', async ({ agent }) => {
+    await rt.load()
+    if (!enabled() || rt.selfOf?.(agent.id) !== undefined || rt.agentOf(agent.id) !== undefined) return
+    await open()
+    const metadata = workerScopes.get(agent.id)
+    if (!metadata?.execution?.botManaged) return
+    const record = await runtime.get(metadata.key)
+    if (record?.state.status === 'terminal') {
+      closedWorkers.add(agent.id)
+      const known = new Set(callableTools(agent))
+      agent.ctx.tools.restrict({ deny: TEAM_TOOLS.filter(name => known.has(name)) })
+      agent.ctx.tools.guard(() => 'This Bot task phase is finished; send new work to its Bot chat')
+      return
+    }
+    await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
+  })
+  let closing
+  rt.stopDurableTasks = () => closing ??= (async () => {
+    stopping = true
+    await opening?.catch(() => undefined)
+    await changes.catch(() => {})
+    await notifier?.close()
+    await runtime?.close()
+  })()
   ctx.effect(() => {
     void rt.load().then(() => enabled() && rt.readOnly() === undefined ? open() : undefined).catch(() => {
       if (stopping) return
       failure = 'Durable tasks could not start; inspect the Host diagnostics before retrying'
       rt.warn('ds-bot: durable tasks could not start')
     })
-    return async () => {
-      stopping = true
-      await opening?.catch(() => undefined)
-      await changes.catch(() => {})
-      await notifier?.close()
-      await runtime?.close()
-    }
+    return rt.stopDurableTasks
   }, 'ds-bot: durable tasks')
 }

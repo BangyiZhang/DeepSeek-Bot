@@ -519,7 +519,8 @@ export function install(rt) {
   })
 
   function resolveEnv(execution) {
-    const botId = rt.selfOf(execution?.agent?.session?.header?.id ?? execution?.agent?.id)
+    const sessionId = execution?.agent?.session?.header?.id ?? execution?.agent?.id
+    const botId = rt.selfOf(sessionId) ?? rt.durableCapabilityBot?.(sessionId)?.id
     if (rt.botOf(botId) === undefined) return {}
     const command = typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''
     const values = {}

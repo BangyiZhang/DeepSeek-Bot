@@ -88,11 +88,12 @@ function Job({ job, actions, refresh, readOnly }) {
     catch (failure) { setError(failure?.message ?? String(failure)) }
     finally { setResuming(false) }
   }
-  const openSession = sessionId => { actions.closeSettings?.(); actions.openAgentSession?.(sessionId) }
+  const openSession = sessionId => { actions.closeSettings?.(); if (job.botManaged) actions.openSession?.(job.origin.botId); else actions.openAgentSession?.(sessionId) }
   return h('article', { className: 'bt-set-card bt-durable-job', 'data-kind': summary.kind },
     h('div', { className: 'bt-durable-job-head' },
       h('h4', { className: 'bt-durable-job-name' }, job.title || t('Untitled task')),
       h('span', { className: 'bt-durable-status', 'data-kind': summary.kind }, t(summary.label))),
+    job.ownerName ? h('div', { className: 'bt-set-hint' }, t('Managed by {name}', { name: job.ownerName })) : null,
     h('div', { className: 'bt-set-hint' }, t('{done} of {count} steps saved', { done: summary.completed, count: summary.count })),
     summary.kind === 'pausing' ? h('p', { className: 'bt-durable-review' }, t('The current step will finish and save before pausing.')) : summary.kind === 'paused' && job.origin ? h('p', { className: 'bt-durable-review' }, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
@@ -108,12 +109,13 @@ function Job({ job, actions, refresh, readOnly }) {
     actions.openAgentSession && job.sessionIds?.length ? h('button', {
       type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session',
       onClick: () => openSession(job.sessionIds[Math.min(summary.completed, job.sessionIds.length - 1)]),
-    }, t('Open work chat')) : null)
+    }, t(job.botManaged ? 'Open Bot chat' : 'Open work chat')) : null)
 }
 
 function CreateTask({ roster, onCreated, readOnly }) {
   const available = (roster.models ?? []).filter(model => !model.needsKey)
   const defaultModel = roster.byId?.[roster.mainBotId]?.model ?? roster.defaultModel
+  const [botId, setBotId] = useState(roster.mainBotId ?? roster.bots?.[0]?.id ?? '')
   const [model, setModel] = useState(() => available.find(entry => entry.ref === defaultModel)?.ref ?? available[0]?.ref ?? '')
   const [title, setTitle] = useState('')
   const [prompts, setPrompts] = useState([''])
@@ -125,7 +127,7 @@ function CreateTask({ roster, onCreated, readOnly }) {
   useEffect(() => () => { alive.current = false }, [])
   const chosen = available.some(entry => entry.ref === model) ? model : available.find(entry => entry.ref === defaultModel)?.ref ?? available[0]?.ref ?? ''
   const locked = Boolean(admission.current && error)
-  const ready = chosen && prompts.every(prompt => prompt.trim()) && !readOnly
+  const ready = botId && chosen && prompts.every(prompt => prompt.trim()) && !readOnly
   const changeStep = (index, value) => setPrompts(current => current.map((prompt, at) => at === index ? value : prompt))
   const example = () => {
     setTitle(t('A relaxed weekend'))
@@ -135,7 +137,7 @@ function CreateTask({ roster, onCreated, readOnly }) {
   const submit = async event => {
     event.preventDefault()
     if (!ready || busy) return
-    const payload = { title: title.trim() || t('Untitled task'), prompts: prompts.map(prompt => prompt.trim()), model: chosen }
+    const payload = { botId, title: title.trim() || t('Untitled task'), prompts: prompts.map(prompt => prompt.trim()), model: chosen }
     const signature = JSON.stringify(payload)
     if (admission.current && admission.current.signature !== signature) { setError(t('Clear the form before starting a different task.')); return }
     admission.current ??= { signature, key: crypto.randomUUID() }
@@ -152,6 +154,8 @@ function CreateTask({ roster, onCreated, readOnly }) {
   return h('section', { className: 'bt-set-section' }, h('h3', null, t('New durable task')),
     h('form', { className: 'bt-set-card bt-durable-form', onSubmit: submit, 'aria-busy': busy || undefined },
       h('fieldset', { disabled: busy || readOnly || locked },
+        h('label', { className: 'bt-durable-field' }, t('Task owner'), h('select', { className: 'bt-select', value: botId, onChange: event => { const id = event.target.value; setBotId(id); const next = roster.byId?.[id]?.appliedModel ?? roster.byId?.[id]?.model; if (available.some(entry => entry.ref === next)) setModel(next) } },
+          (roster.bots ?? []).map(bot => h('option', { key: bot.id, value: bot.id }, bot.name)))),
         h('div', { className: 'bt-durable-fields' },
           h('label', { className: 'bt-durable-field' }, t('Task name'), h('input', { className: 'bt-input', value: title, maxLength: 120, placeholder: t('What would you like to finish?'), onChange: event => setTitle(event.target.value) })),
           h('label', { className: 'bt-durable-field' }, t('Model'), h('select', { className: 'bt-select', value: chosen, onChange: event => setModel(event.target.value) },

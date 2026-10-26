@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { canUse, encodeUrlComponent, normalizeName, redactDeep, redactor, SECRET_NAME } from '../src/host/secrets.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -112,7 +112,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-')) } = {}) {
   }
   let route
   ctx.connection.fetch.register = (options) => { route = options; return () => {} }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => {
     const response = await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -129,7 +129,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-')) } = {}) {
   }
   const env = (agentId, command = '') => contributors.filter(entry => entry.live).at(-1)?.resolve({ agent: { id: agentId, session: { header: { id: agentId } } }, arguments: { command } }) ?? {}
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
-  return { ctx, home, call, tool, view, env, listeners, delivered, streamed, contributors, stop }
+  return { rt, ctx, home, call, tool, view, env, listeners, delivered, streamed, contributors, stop }
 }
 
 // Bootstrap would create a Main Bot when none exists; this team has one, so it only loads.
@@ -200,6 +200,12 @@ test('a Bot outside the scope gets an allow card, and allowing resolves it', asy
   let [request] = (await bench.view()).secretRequests.b2
   assert.equal((await bench.call('secret-set', { requestId: request.id, value, scope: 'bot' })).value.scope.join(), 'b2')
   assert.deepEqual(bench.env('c3'), {})
+  let active = true
+  bench.rt.durableCapabilityBot = id => active && id === 'managed-worker' ? bench.rt.botOf('b2') : id === 'foreign-worker' ? bench.rt.botOf('c3') : undefined
+  assert.deepEqual(bench.env('managed-worker'), { DSH_SECRET_DEMO_TOKEN: value })
+  assert.deepEqual(bench.env('foreign-worker'), {})
+  active = false
+  assert.deepEqual(bench.env('managed-worker'), {})
 
   // Coder asks too, while a second Writer card would be superseded by the first answer.
   const asked = await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'build' }, 'c3')
