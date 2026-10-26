@@ -7,6 +7,7 @@ import { Shimmer } from './cells.js'
 import { useEscape, usePaneLeft } from './overlay-hooks.js'
 import { t } from './i18n.js'
 import { openCapture, speechCatalog, transcribeWave, turnDetector } from './speech.js'
+import { createPlayback } from './playback.js'
 
 // Voice chat: listen, send what the user said, read the Bot's answer aloud, listen
 // again. With DSH's Voice Input plugin on, its recognizer hears the user: one
@@ -81,8 +82,13 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
   reply.current = lastReply
   // Bumped on pause and close, so a transcript that arrives later is dropped.
   const turn = useRef(0)
+  const [playback] = useState(() => createPlayback({
+    endpoint: (() => { try { return localStorage.getItem('ds-bot:tts-endpoint') } catch { return null } })(),
+    Audio: window.Audio, synthesis: window.speechSynthesis, Utterance: window.SpeechSynthesisUtterance,
+    done: () => setPhase(current => current === 'speaking' ? 'listening' : current),
+  }))
   const paneLeft = usePaneLeft()
-  const close = () => { turn.current += 1; window.speechSynthesis?.cancel(); actions.closeVoice() }
+  const close = () => { turn.current += 1; playback.stop(); actions.closeVoice() }
   useEscape(close)
   const submit = (text) => {
     setHeard(text)
@@ -187,24 +193,11 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
     const spoken = plainSpeech(text)
     setSaid(spoken)
     setHeard('')
-    if (!window.speechSynthesis || !spoken) { setPhase('listening'); return }
-    const utterance = new SpeechSynthesisUtterance(spoken)
-    const isZh = /[\u3400-\u9fff]/.test(spoken)
-    utterance.lang = isZh ? 'zh-CN' : 'en-US'
-    const voices = window.speechSynthesis.getVoices()
-    const chinese = voices.filter(voice => (voice.lang ?? '').toLowerCase().replace('_', '-').startsWith('zh'))
-    const selected = isZh
-      ? chinese.find(voice => voice.name.includes('Tingting')) ?? chinese.find(voice => voice.name.includes('Meijia'))
-        ?? chinese.find(voice => !/Eddy|Flo|Grandma|Grandpa|Rocko|Sandy|Shelley|Reed/i.test(voice.name)) ?? chinese[0]
-      : voices.find(voice => voice.lang.toLowerCase().startsWith('en'))
-    if (selected) utterance.voice = selected
-    utterance.onend = () => setPhase(current => (current === 'speaking' ? 'listening' : current))
-    utterance.onerror = utterance.onend
+    if (!spoken) { setPhase('listening'); return }
     setPhase('speaking')
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(utterance)
+    playback.speak(spoken)
   }, [phase, running, lastReply])
-  useEffect(() => () => window.speechSynthesis?.cancel(), [])
+  useEffect(() => () => playback.stop(), [])
   const micLevel = useMicLevel(!speech && phase === 'listening' && dictation.listening)
   const level = speech ? serviceLevel : micLevel
   const markState = phase === 'thinking' || phase === 'transcribing' ? 'thinking' : phase === 'speaking' ? 'sending' : 'idle'
@@ -212,7 +205,7 @@ export function VoiceMode({ sessionId, roster, actions, useSessions, useSessionS
   const togglePause = () => {
     if (phase === 'paused') { setPhase('listening'); return }
     turn.current += 1
-    window.speechSynthesis?.cancel()
+    playback.stop()
     setPhase('paused')
   }
   const openSetup = phase === 'setup' ? actions.voiceSetup() : null

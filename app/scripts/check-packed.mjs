@@ -30,6 +30,9 @@ if (!existsSync(executable)) {
 
 const work = realpathSync.native(mkdtempSync(join(realpathSync.native(tmpdir()), 'ds-bot-packed-')))
 mkdirSync(join(work, 'home'))
+mkdirSync(join(work, 'home', 'profiles', 'ds-bot'), { recursive: true })
+writeFileSync(join(work, 'home', 'profiles', 'ds-bot', 'cordis.patch.yml'), '- id: bot\n  config:\n    localCodex: false\n    localAntigravity: false\n    updateCheck: false\n    diagnosticsFile: false\n')
+mkdirSync(join(work, 'workspace'))
 const children = []
 
 function stopChildren() {
@@ -219,6 +222,15 @@ async function chat(cdp) {
     throw new Error(`${error.message}; page state: ${state}`)
   }
   await sleep(1000)
+  const selection = await evaluate(`(() => {
+    const tile = document.querySelector('.bt-tile[aria-current="page"]')
+    if (!tile) return null
+    const style = getComputedStyle(tile)
+    return { shadow: style.boxShadow, background: style.backgroundColor }
+  })()`)
+  if (!selection || selection.shadow === 'none' || selection.background === 'rgba(0, 0, 0, 0)') {
+    throw new Error(`the selected Chief tile has no visible highlight: ${JSON.stringify(selection)}`)
+  }
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 
@@ -231,6 +243,7 @@ try {
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
   Object.assign(env, {
     DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'),
+    DS_BOT_WORKSPACE: join(work, 'workspace'),
     DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key',
   })
   const app = spawn(outsideCheckout(resolve(executable)), [`--remote-debugging-port=${String(port)}`], { stdio: 'inherit', env })

@@ -115,11 +115,6 @@ html[data-ds-bot-mac-titlebar] [class*="_collapsed"] [class*="_toggle"] {
   border: 1px solid var(--bt-line);
   background: var(--bt-card);
 }
-html[data-ds-bot-mac-titlebar] .bt-tile[aria-current=page] {
-  background: transparent;
-  box-shadow: none;
-}
-html[data-ds-bot-mac-titlebar] .bt-tile:hover { background: var(--bt-hover); }
 html[data-ds-bot-mac-titlebar] [data-composer-card] {
   background: var(--bt-card) !important;
   border-color: var(--bt-line-2) !important;

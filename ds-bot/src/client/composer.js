@@ -79,7 +79,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
       type: 'button', className: 'bt-mic', 'aria-label': dictation.listening ? t('Stop dictation') : t('Dictate'),
       'aria-pressed': dictation.listening, title: dictation.listening ? t('Stop dictation') : t('Dictate'),
       onMouseDown: keepComposerFocus, onClick: () => {
-        const trigger = document.querySelector("button[class*='trigger']")
+        const trigger = document.querySelector("[class*='_activity'] button")
         if (trigger) { trigger.click(); return }
         dictation.listening ? dictation.stop() : dictation.start()
       },
