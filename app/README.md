@@ -2,6 +2,8 @@
 
 The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.1-rc.2) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
 
+For the local in-app development and installation workflow, see [Building and updating this fork on macOS](../docs/development/local-macos-build.md).
+
 ## Run
 
 ```sh
