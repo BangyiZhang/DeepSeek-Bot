@@ -4,6 +4,8 @@ name: Release
 # Windows installer, macOS zips and Linux packages to the release. Windows and the Linux
 # AppImage update from latest.yml / latest-linux.yml; macOS and the Linux deb open the release
 # page for a manual download.
+# Fork releases attach a locally verified macOS ARM64 zip. They run the checks below
+# without publishing npm or rebuilding assets; manual dispatch builds only ARM64.
 #
 # npm Trusted Publishing: npm trusts this workflow through GitHub's OIDC token, so the
 # repository keeps no npm token, and every version gets a provenance statement. It is set
@@ -35,7 +37,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Check and publish
+    name: Check release
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -88,7 +90,7 @@ jobs:
         run: npm pack --dry-run
 
       - name: Publish
-        if: github.event_name == 'release' || (!inputs.dry_run && github.ref == 'refs/heads/main')
+        if: github.repository == 'Fei2411/DS-Bot' && (github.event_name == 'release' || (!inputs.dry_run && github.ref == 'refs/heads/main'))
         run: |
           tag="$(node -p "require('./package.json').version.includes('-') ? 'next' : 'latest'")"
           echo "Publishing $(node -p "require('./package.json').version") with the npm tag $tag"
@@ -96,7 +98,7 @@ jobs:
 
       # The release keeps the package file for installs without npm.
       - name: Attach the package to the release
-        if: github.event_name == 'release'
+        if: github.repository == 'Fei2411/DS-Bot' && github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
@@ -105,6 +107,7 @@ jobs:
           gh release upload "$TAG" "ds-bot-$(node -p "require('./package.json').version").tgz" --clobber
 
   app-windows:
+    if: github.repository == 'Fei2411/DS-Bot'
     name: Desktop app installer (Windows)
     needs: publish
     runs-on: windows-latest
@@ -142,6 +145,7 @@ jobs:
           gh release upload "$TAG" "$installer" "$installer.blockmap" dist-pack/latest.yml --clobber
 
   app-macos:
+    if: github.repository == 'Fei2411/DS-Bot' || github.event_name == 'workflow_dispatch'
     name: Desktop app zip (macOS ${{ matrix.arch }})
     needs: publish
     runs-on: ${{ matrix.runner }}
@@ -149,9 +153,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: arm64, runner: macos-latest }
-          - { arch: x64, runner: macos-26-intel }
+        include: ${{ fromJSON(github.repository == 'Fei2411/DS-Bot' && '[{"arch":"arm64","runner":"macos-latest"},{"arch":"x64","runner":"macos-26-intel"}]' || '[{"arch":"arm64","runner":"macos-latest"}]') }}
     defaults:
       run:
         shell: bash
@@ -162,7 +164,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
-      - run: npm run dist
+      - run: npm run dist -- --mac --${{ matrix.arch }}
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
       - name: Keep the zip for real-device checks
@@ -184,6 +186,7 @@ jobs:
           gh release upload "$TAG" "$zip" --clobber
 
   app-linux:
+    if: github.repository == 'Fei2411/DS-Bot'
     name: Desktop app packages (Linux x64)
     needs: publish
     runs-on: ubuntu-latest
