@@ -1,0 +1,7 @@
+# An empty model inherits the current session's selected provider and model.
+- insert:
+    - id: client-ui-ambient-suggestions
+      name: dsh-ambient-suggestions
+      config:
+        model: ''
+        timeoutMs: 8000

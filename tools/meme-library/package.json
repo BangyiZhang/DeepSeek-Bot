@@ -1,0 +1,12 @@
+{
+  "name": "ds-bot-meme-library-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
+}

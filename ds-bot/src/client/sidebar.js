@@ -49,6 +49,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const retainedPart = useSessionRetainInfo(part, info => (info?.retainedBy?.mainView ?? 0) > 0)
+  // Historical parts still belong to the same Bot when opened in the main view.
   const shownSession = useSessions(list => Object.values(list.byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
   const ownedSessions = new Set([id, part, bot.sessionId, ...(bot.parts ?? [])].filter(Boolean))
   const active = shownSession === null ? retainedPart : ownedSessions.has(shownSession) || roster.byId?.[shownSession]?.id === id

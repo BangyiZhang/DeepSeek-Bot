@@ -1,0 +1,33 @@
+{
+  "name": "dsh-ambient-suggestions",
+  "version": "0.2.0",
+  "description": "Cancellable model-powered next-message predictions for the DeepSeek Harness composer.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "prepack": "npm run build"
+  },
+  "files": ["src/*.js", "scripts/host-smoke.mjs", "lib/client.js", "cordis.patch.yml", "icon.svg", "LICENSE", "README.md", "VALIDATION.md", "marketplace"],
+  "keywords": ["deepseek-harness", "dsh-plugin", "ambient-suggestions", "follow-up", "composer-dock"],
+  "author": "RunEast & DeepSeek Harness Community",
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-session", "@deepseek-ai/dsh-client-ui-conversation", "@deepseek-ai/dsh-client-ui-chat", "@deepseek-ai/dsh-api-remotes", "@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-plugin-manager"]
+    }
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5", "@deepseek-ai/schemastery": "*", "@deepseek-ai/dsh-typert-protocol": "*", "@deepseek-ai/dsh-llm": "*" },
+  "dependencies": { "zod": "^4.1.12" },
+  "devDependencies": { "esbuild": "^0.25.12", "react": "^18.3.1", "react-test-renderer": "^18.3.1" }
+}

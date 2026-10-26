@@ -1,0 +1,15 @@
+/* DS Bot's skin hides native text and draws its own ::before label.
+   Restore real text only while this plugin owns the preview. */
+[data-composer-placeholder][data-ambient-preview="true"] {
+  font-size: 14px !important;
+  line-height: 24px !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* Disable the host skin's fallback label without drawing another pseudo-element. */
+[data-composer-placeholder][data-ambient-preview="true"]::before {
+  content: none !important;
+  display: none !important;
+}

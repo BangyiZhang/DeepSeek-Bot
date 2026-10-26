@@ -116,19 +116,13 @@ export function turnDetector({ loud = 0.12, quiet = 0.075, quietMs = 700 } = {})
   return (level, now) => {
     if (spokeAt === null) {
       const threshold = Math.max(loud, noiseFloor * 2.4)
-      if (level >= threshold) {
-        spokeAt = now
-        return "speech"
-      }
+      if (level >= threshold) { spokeAt = now; return 'speech' }
       noiseFloor = noiseFloor * 0.9 + level * 0.1
-      return "waiting"
+      return 'waiting'
     }
-    if (level >= Math.max(loud, noiseFloor * 1.9)) {
-      quietSince = null
-      return "speech"
-    }
+    if (level >= Math.max(loud, noiseFloor * 1.9)) { quietSince = null; return 'speech' }
     if (level < Math.max(quiet, noiseFloor * 1.35)) quietSince ??= now
     else if (quietSince === null || now - quietSince < 280) quietSince = null
-    return quietSince !== null && now - quietSince >= quietMs ? "done" : "speech"
+    return quietSince !== null && now - quietSince >= quietMs ? 'done' : 'speech'
   }
 }

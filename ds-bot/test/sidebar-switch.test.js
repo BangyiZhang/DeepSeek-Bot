@@ -375,3 +375,20 @@ test('the shell footer is a grid wherever the shell shows it', () => {
     }
   }
 })
+
+
+test('Chief selection follows current and historical session ownership', () => {
+  const { rows } = navigationSidebar(true)
+  const render = rows.find(row => row.type.name === 'BotRow').type
+  const bot = { id: 'chief', sessionId: 'current', parts: ['older'], name: 'Chief' }
+  for (const [shown, retained, expected] of [['chief', false, true], ['current', false, true], ['older', false, true], ['indexed', false, true], ['other', true, false], [null, true, true], [null, false, false]]) {
+    const tree = render({ bot, roster: { mainBotId: 'chief', mainBotIds: ['chief'], exchangeTurns: {}, questions: {}, roomsById: {}, byId: { indexed: bot } },
+      actions: {}, wide: true, useSessions: pick => pick({ byId: shown ? { [shown]: { id: shown, retainedBy: { mainView: 1 } } } : {} }),
+      useSessionStatus: pick => pick(new Map()), useSessionRetainInfo: (_id, pick) => pick({ retainedBy: { mainView: Number(retained) } }),
+      useActivity: pick => pick({}), useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
+    })
+    const button = tree.props.children[0]
+    assert.equal(button.props['aria-current'], expected ? 'page' : undefined, String(shown))
+    assert.equal(button.props.className, expected ? 'bt-tile active' : 'bt-tile')
+  }
+})

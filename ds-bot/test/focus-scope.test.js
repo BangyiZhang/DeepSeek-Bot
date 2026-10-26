@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { build } from 'esbuild'
 
 const requireHarness = createRequire(join(process.env.DSH_HARNESS, 'package.json'))
 const { JSDOM } = requireHarness('jsdom')
 const { outputFiles } = await build({
-  entryPoints: [new URL('../src/client/focus-scope.js', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../src/client/focus-scope.js', import.meta.url))],
   bundle: true, format: 'cjs', platform: 'browser', write: false, external: ['react'],
 })
 
