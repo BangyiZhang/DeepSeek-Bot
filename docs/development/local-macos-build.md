@@ -9,81 +9,63 @@ This guide is for the in-app Dev Bot and local contributors. Read `AGENTS.md` fi
 - Use native arm64 Node 24+ and npm for the Apple silicon build. This workspace may have an ignored `work/npm24` wrapper; use it when present. It is a local convenience, not a dependency of the repository.
 - Do not reset dependencies unnecessarily. The app installs `ds-bot` as a **copy**. `npm install` can retain that copy when the version is unchanged.
 
-## 2. Build and refresh the app's plugin copy
+## 2. Use the preparation command
 
-From the repository root:
-
-```sh
-npm --prefix ds-bot run build
-node ds-bot/scripts/build-client.mjs --check
-cp ds-bot/client.js app/node_modules/ds-bot/client.js
-```
-
-When host or shared plugin code changed, copy the corresponding package files too:
+For an incremental macOS build, run this from the checkout root with native Node 24+:
 
 ```sh
-cp ds-bot/index.js ds-bot/web-search.js ds-bot/cordis.patch.yml app/node_modules/ds-bot/
-ditto ds-bot/src/host app/node_modules/ds-bot/src/host
-ditto ds-bot/src/shared app/node_modules/ds-bot/src/shared
+npm --prefix app run local-update:prepare
+# In this workspace, the optional Node 24 wrapper can be used instead:
+./work/npm24 --prefix app run local-update:prepare
 ```
 
-For dependency changes or a clean checkout, follow `app/README.md` and the lockfiles instead. Do not copy test homes, credentials, arbitrary installed plugins, or user data into the package.
+The command builds the client, refreshes the app's copied `ds-bot` package, runs plugin tests/lint/client checks, app tests and an isolated mock Host smoke test, builds and packages the app, verifies its bundle identity/signature/architecture, runs the packaged chat/UI check and validates a new ZIP. It does not install or publish. It stops at the first failed check; inspect the named log instead of assuming later stages ran. Expect the full smoke test to take several minutes. Do not edit production sources during preparation: source fingerprints and a file-by-file ASAR comparison reject a changing or stale build.
 
-The current machine's speech loader also has an existing local dependency adjustment. It is not a tracked, reproducible build step. Preserve and verify existing local dependencies during an incremental build; do not claim a clean install reproduces that adjustment. If a clean install exposes a loader problem, diagnose supported packaging or upstream dependency behavior instead of patching DSH or quietly changing a vendor package. Local TTS endpoints, services and model caches are configuration outside the source package; a ZIP does not install them on another machine.
+On success the last line is JSON with `appPath`, `zipPath`, `evidencePath` and `appHash`. Save those exact paths and read the report. The report binds the passed checks to that exact candidate ASAR. Logs and reports stay under ignored `work/local-updates/<build-id>/` with private permissions. Do not invent a report or mark a failed check passed. The controller rechecks the current bundle before staging and replacement.
 
-## 3. Validate the change
+For a dependency change or clean checkout, follow `app/README.md` and the lockfiles first. Do not copy credentials or user profiles into the package. Do not reset dependencies unnecessarily. This machine has an existing local speech-loader dependency adjustment that is not a tracked, reproducible build step. Preserve it during incremental builds; do not claim a clean dependency install reproduces it. If a clean build exposes a loader problem, diagnose supported packaging/upstream behavior rather than patch DSH or silently modify a vendor package. Local TTS services and caches are separate configuration.
+
+## 3. Check the user's actual change
+
+The automated packaged check verifies chat and the Chief selection. It cannot prove every new feature or visual change. Add meaningful focused verification for the change. For interface work check computed appearance, light/dark themes, hover/rest and relevant collapsed layouts; both plugin CSS and `app/src/mac-frame.css` apply. An active marker without its visible highlight is a failure.
+
+Tests must use throwaway data and mock models. Never test against the installed user's profile, `~/.dsh`, active team or real credentials. A listening port or HTTP 401 alone does not verify the UI.
+
+## 4. Hand installation to the desktop controller
+
+A Bot's Host and its managed shell jobs stop when the application quits. Complete the build and its checks first. **Keep a self-update task in the originating Bot's user-requested private chat**, because the installer tool is unavailable in Pi Durable workers, DSH Agent sessions and groups. Do not delegate the installer to a new task or call it from an automated receipt.
+
+1. Read the successful preparation report and record the tested change and artifact paths in the chat.
+2. Call `request_desktop_update` with the exact `appPath` and `evidencePath`. The destination is fixed to the running app; a tool cannot choose another app to overwrite.
+3. If accepted, say the update is **queued**, then **end the turn**. Do not sleep, wait for restart, poll, or keep a shell job alive. The desktop waits for active agents, inboxes, jobs, group rounds and unfinished durable tasks to become idle. A task that has actually saved its paused checkpoint does not block it. If other work keeps running, the update stays queued.
+4. The desktop stages and validates the candidate, snapshots its own runtime, starts a detached installer, arms the handoff and quits normally. The installer waits for the original PID to exit, keeps the old app, swaps the staged app into place and launches it. It never force-quits the old app or changes the team's data.
+5. Only a matching launched PID/ASAR receipt after **Host and chat UI readiness** yields `completed`. Startup failure stops only the owned replacement and restores/restarts the verified old app; `rolled_back` also requires old-app health. The origin Bot receives one saved result after restart. Report that result in the user's language and do not rerun installation from it.
+6. Use `get_desktop_update` when the user asks about status, or to reconcile an uncertain outcome. `failed` means no verified installation; `recovery_failed` needs inspection and preserves recoverable bundles. `report: attempted` means callback delivery is uncertain and must not be blindly repeated. The installation receipt remains readable.
+
+For changes to the controller itself, also run the real restart acceptance on the prepared report:
 
 ```sh
-npm --prefix ds-bot test
-npm --prefix ds-bot run lint
-node ds-bot/scripts/build-client.mjs --check
-TMPDIR=/private/tmp npm --prefix app test
-git diff --check
+node app/scripts/check-local-update.mjs /absolute/path/to/report.json
 ```
 
-`TMPDIR=/private/tmp` avoids the `/var` versus `/private/var` alias in macOS temporary-path assertions. It does not change application data. Record failed checks and skipped tests honestly. For `index.js` or host changes, also run the repository's mock smoke test and stop its processes afterward.
+It copies the candidate into a throwaway `.dsh-test-local-update-*` folder, starts a loopback mock, calls the real tool through chat, checks that the original PID exits and a replacement Host/UI acknowledges the exact hash, then confirms the Bot report is saved. The installed app and real team are not test targets. Failure/rollback and lock behavior are covered by isolated installer tests.
 
-Never point a test at the user's DSH home, desktop data, active team, or real model credentials. Use the mock model and isolated test folders.
+This controller is available only in the packaged macOS application. The first version containing it must be installed externally once. It installs no launch daemon, asks for no administrator privileges and cannot update a destination the current user cannot write. The regular GitHub download updater remains separate.
 
-For interface changes, inspect the **computed appearance**, not only React state or `aria-current`. Both plugin CSS and `app/src/mac-frame.css` apply in the installed Mac app. A more specific frame rule can erase an otherwise correct selection. Verify light and dark modes, hover and rest, relevant collapsed layouts, and the user's actual scenario. For the Chief tile, an active marker without its visible background and accent outline is a failure.
+## 5. Recovery and artifact cleanup
 
-## 4. Package and test the packaged app
+Job records are in `<Electron userData>/local-updates/<job-id>/job.json`. Each job records its target, stage, backup, previous/new hashes and owned process IDs, without provider credentials or environment dumps. The independent installer files and `Runner.app` live beside that record. Nonterminal interrupted jobs can be reconciled by running their own saved worker with a supported Node runtime:
 
 ```sh
-npm --prefix app run build
-npm --prefix app run pack -- --mac --arm64
-codesign --verify --deep --strict 'app/dist-pack/mac-arm64/DeepSeek Bot.app'
-npm --prefix app run check-packed
+node /absolute/job-folder/worker.mjs /absolute/job-folder/job.json
 ```
 
-The check launches a **copy** of the built app outside the checkout, uses temporary home/shell/workspace folders and a loopback mock, disables local CLI providers and update checks, exercises chat and the visible Chief highlight, and closes the app. The installed user's app must never be passed as the test executable. This catches missing packaged files and frame CSS that source tests cannot see.
+Check the recorded PIDs and phase first. An active worker owns a lock and a second worker refuses to run. Recovery never kills an unowned process or overwrites an unknown target. If `recovery_failed` is terminal, inspect the journal and verify the retained bundles before any manual restoration; do not clear its state, delete the backup, or retry side effects blindly. A timeout can mean the previous bundle was restored but its health could not be confirmed.
 
-Compare the packaged DS Bot files with the built source. A build log alone does not prove the app contains the latest plugin copy.
-
-Create a uniquely named ZIP after those checks, for example:
-
-```sh
-ditto -c -k --sequesterRsrc --keepParent \
-  'app/dist-pack/mac-arm64/DeepSeek Bot.app' \
-  'app/dist-pack/DeepSeek-Bot-0.2.1-mac-arm64-local-build.zip'
-```
-
-Wait for the ZIP writer to exit, then validate the archive, for example with Python's `ZipFile.testzip()`. Retain the previous installer until the new archive and installation are verified. The user's preference is to keep only the latest verified installer afterward.
-
-## 5. Install without interrupting the build itself
-
-A Bot runs inside the application it is updating. Quitting that app also stops its Host and can interrupt the Bot's turn or Pi Durable work. Do not replace the running app in place and do not declare success before restart verification.
-
-1. Finish building, testing, signing and archiving first. Save the exact artifact path, checks, hashes and intended installation steps in the task's results and a local handoff record before shutdown.
-2. Confirm the user's chats and other Bots are idle. Stage the complete verified app separately in Applications and keep a recoverable copy of the existing app until validation succeeds.
-3. Use an independent, vetted installer/controller outside the app's Host to coordinate graceful quit, replacement and launch. Do not assume a managed shell job or Pi task will survive quitting its own Host. If no such controller is available, give the user the verified artifact and the concrete remaining installation/restart step; do not claim an unattended installation occurred.
-4. Verify the installed signature and content hash, launch normally, and confirm the existing team/chat and changed UI load. A listening port or HTTP 401 proves only that the Host is responding, not that the UI fix works. Do not send mock tasks to the user's real team.
-5. On failure, restore the previous app. Do not delete or overwrite the user's data, profile, credentials, model caches or local service settings. Once verified, remove only superseded build artifacts and redundant app copies.
-
-An uncertain task result is not permission to rerun side effects. Inspect the known build logs, owned process IDs, artifact timestamps/hashes and saved progress first. If the earlier command cannot be safely reconciled, report that limitation.
+The successful install removes its old backup; the restarted desktop removes the runner snapshot only after its worker exits. A failed recovery retains its snapshot and backups. Once the installed app and the user's change are verified, keep the latest verified ZIP and remove only superseded build artifacts/redundant app copies. Do not delete user data, profiles, caches, dependencies, logs needed for reconciliation, or unknown files to save disk space.
 
 ## 6. Report and publish accurately
 
-Report source revision or local changes, test results, exact ZIP path, and whether installation and restart verification actually happened. Keep these states separate: source saved, client built, app packaged, archive validated, installed, restarted, and visually verified.
+Report source revision/local changes, checks, exact ZIP path and the saved installation outcome. Keep source saved, packaged, archive validated, installed, restarted and visually verified distinct. A health receipt confirms the Host/chat UI, not every new UI detail.
 
-Commit/push only when requested, using the human user's identity and the user's fork. A local package is not a GitHub Release. Do not bump versions, create tags, publish releases, change security settings or expand permissions merely to build or install locally.
+Commit/push only when requested, using the human user's identity and the user's fork. Local updates do not authorize version bumps, tags, GitHub Releases, permission changes or publication.

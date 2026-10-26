@@ -192,7 +192,7 @@ function decide(body) {
 
   // A stopped call's result can share a message with a fresh group turn or saved
   // task callback. The newly delivered message owns that turn.
-  const fresh = textBlocks(last?.content).some(value => value.trimStart().startsWith('[Group chat') || value.trimStart().startsWith('[Durable task update]'))
+  const fresh = textBlocks(last?.content).some(value => value.trimStart().startsWith('[Group chat') || value.trimStart().startsWith('[Durable task update]') || value.trimStart().startsWith('[Desktop application update receipt]'))
   const result = fresh ? undefined : blocks.find(block => block.type === 'tool_result')
   if (result) {
     const resultText = typeof result.content === 'string' ? result.content : textOf(result.content)
@@ -241,6 +241,8 @@ function decide(body) {
       return Object.assign([text(STEP_LINES[at - 1]), tool(used.name, { pattern: `${STEPPED_WORK}-${at + 1}-${stepped[2]}-*` })], { delay: wait })
     }
     switch (used?.name) {
+      case 'request_desktop_update': return [text(`Desktop update ${result.is_error ? 'refused' : 'queued'}: ${resultText}`)]
+      case 'get_desktop_update': return [text(`Desktop update status: ${resultText}`)]
       case 'create_durable_task': return [text(result.is_error ? `Durable chat creation refused: ${resultText}` : `Durable chat task accepted: ${resultText}`)]
       case 'pause_durable_task': return [text(`Durable chat pause: ${resultText}`)]
       case 'resume_durable_task': return [text(`Durable chat continue: ${resultText}`)]
@@ -299,6 +301,8 @@ function decide(body) {
   }
 
   const userText = textOf(last?.content).trim()
+  if (userText.startsWith('Desktop update fixture ') && tools.has('request_desktop_update')) return [tool('request_desktop_update', JSON.parse(userText.slice('Desktop update fixture '.length)))]
+  if (userText.startsWith('[Desktop application update receipt]')) return [text(`Desktop update report: ${userText.includes(': completed.') ? 'completed' : 'needs review'}`)]
   if (userText.startsWith('[Durable task update]')) {
     const key = /^Task key: (.+)$/m.exec(userText)?.[1] ?? 'unknown'
     return [text(`Durable chat report ${key}: ${userText.includes('Status: cancelled') ? 'cancelled' : userText.includes('Status: completed') ? 'completed' : 'needs review'}; ${userText.includes('owner context present') ? 'owner context present' : 'owner context missing'}; ${userText.includes('earlier result present') ? 'saved results received' : 'saved results absent'}.`)]

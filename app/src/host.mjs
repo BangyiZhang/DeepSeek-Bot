@@ -8,6 +8,8 @@ import { loadLayeredEnv, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import { CHECK_PROFILE, INSTALL_ANCHOR, loadAppProfile, loadCheckProfile, PROFILE } from './profile.mjs'
 import { reconcileSearchSelector } from './search-patch.mjs'
+import { createRpc } from './local-update/rpc.mjs'
+import { updateReadiness } from './local-update/readiness.mjs'
 import { unreadableSessions } from './session-check.mjs'
 
 const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
@@ -48,6 +50,14 @@ async function main() {
     if (persistence === undefined) throw new Error(`The profile in ${profile.dir} does not store Sessions.`)
     await send({ type: 'checked', unreadable: await unreadableSessions(persistence, JSON.parse(readFileSync(check, 'utf8'))) })
     return
+  }
+  if (process.env.DS_BOT_LOCAL_UPDATES === '1' && process.connected) {
+    const bridge = createRpc(process, op => {
+      if (op !== 'readiness') throw new Error('Unknown desktop Host operation')
+      return updateReadiness(ctx)
+    })
+    ctx.provide('dsBotDesktopUpdateBridge', bridge)
+    ctx.effect(() => () => bridge.close(), 'ds-bot: desktop update bridge')
   }
   const [webServer, connection] = [ctx.get('webServer'), ctx.get('connection')]
   // A profile patch can turn these rows off; then the window has nothing to talk to.

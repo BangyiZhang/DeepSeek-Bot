@@ -1,6 +1,7 @@
 // Runs the Host in Electron's Node mode and owns its lifetime.
 // Follows DeepSeek Harness apps/desktop/src/host-process.ts (MIT); see NOTICE.
 import { spawn } from 'node:child_process'
+import { createRpc } from './local-update/rpc.mjs'
 
 const STDERR_TAIL_CHARS = 8 * 1024
 
@@ -15,6 +16,7 @@ const settlesWithin = (promise, ms) => new Promise((resolve) => {
 export class HostProcess {
   #options
   #child
+  #rpc
   #ready
   #exit
   #stderr = ''
@@ -38,6 +40,7 @@ export class HostProcess {
         cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       })
       this.#child = child
+      this.#rpc = createRpc(child, this.#options.onRequest)
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
       child.stdout.on('data', (chunk) => { process.stdout.write(redact(chunk)) })
@@ -53,6 +56,7 @@ export class HostProcess {
       child.once('error', (error) => { this.#fail(error, reject) })
       this.#exit = new Promise((done) => {
         child.once('close', (code) => {
+          this.#rpc?.close()
           const tail = redact(this.#stderr.trim())
           this.#fail(new Error(`The DSH Host stopped (exit ${String(code)})${tail === '' ? '' : `:\n${tail}`}`), reject)
           done()
@@ -60,6 +64,11 @@ export class HostProcess {
       })
     })
     return this.#ready
+  }
+
+  request(op, body) {
+    if (!this.#rpc) return Promise.reject(new Error('The Host is not ready'))
+    return this.#rpc.request(op, body)
   }
 
   /** Ask the Host to shut down, then end it if it does not exit in time. */

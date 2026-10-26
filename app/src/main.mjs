@@ -3,7 +3,7 @@
 // origin as the address the browser comes back to, and accepts only a loopback one.
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, realpath, rm } from 'node:fs/promises'
 import { release } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -17,6 +17,8 @@ import { parseCookieFile } from './cookie-parse.mjs'
 import { downloadSaver } from './downloads.mjs'
 import { canonicalExecPath } from './canonical-path.mjs'
 import { chooseLocations, localeText, programFolder, saveLocations, text } from './first-run.mjs'
+import { createLocalUpdates } from './local-update/manager.mjs'
+import { JOB_ID } from './local-update/files.mjs'
 import { hostPort } from './host-port.mjs'
 import { HostProcess } from './host-process.mjs'
 import { copySessions, findTeam, importTeam, teamInUse, userDshHome } from './import.mjs'
@@ -55,6 +57,7 @@ let host
 let origin
 let hostStop
 let updates
+let localUpdates
 let stopping = false
 let stopped = false
 let failed = false
@@ -98,6 +101,7 @@ if (canonical !== undefined) {
     if (stopping) return
     void stopHost().then(() => { app.quit() })
   })
+  app.on('will-quit', () => localUpdates?.close())
   app.whenReady().then(start).catch(fail)
 }
 
@@ -117,12 +121,31 @@ async function start() {
   const pnpm = join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
   const profileDir = join(where.dataDir, 'profiles', PROFILE)
   mkdirSync(profileDir, { recursive: true })
+  // Throwaway runs never enable installers unless the dedicated isolated acceptance run asks.
+  const localTarget = resolve(process.execPath, '..', '..', '..')
+  const fixtureRoot = dirname(localTarget)
+  const localFixture = process.env.DS_BOT_LOCAL_UPDATE_TEST === '1' && basename(fixtureRoot).startsWith('.dsh-test-local-update-')
+    && await realpath(process.env.DS_BOT_HOME || '.').catch(() => '') === join(fixtureRoot, 'home')
+    && await realpath(process.env.DS_BOT_SHELL_DATA || '.').catch(() => '') === join(fixtureRoot, 'shell')
+  if (app.isPackaged && process.platform === 'darwin' && (!process.env.DS_BOT_HOME || localFixture)) {
+    const launchEnv = Object.fromEntries(['DS_BOT_SHELL_DATA', 'DS_BOT_WORKSPACE'].filter(key => process.env[key]).map(key => [key, process.env[key]]))
+    if (localFixture) {
+      if (!/^http:\/\/127\.0\.0\.1:\d+\/v1$/u.test(process.env.DEEPSEEK_BASE_URL ?? '') || process.env.DEEPSEEK_API_KEY !== 'mock-key') throw new Error('Local update acceptance requires a loopback mock')
+      Object.assign(launchEnv, { DS_BOT_HOME: process.env.DS_BOT_HOME, DS_BOT_LOCAL_UPDATE_TEST: '1', DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY: 'mock-key' })
+    }
+    localUpdates = createLocalUpdates({ root: join(app.getPath('userData'), 'local-updates'), target: localTarget,
+      launchEnv, probe: () => stopping || copying || choosing ? { idle: false } : host.request('readiness'), quit: () => app.quit() })
+  }
   const newHost = () => new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir,
-    env: { ...process.env, DSH_HOME: where.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), ...(where.workspace ? { DS_BOT_WORKSPACE: where.workspace } : {}) },
+    env: { ...process.env, DSH_HOME: where.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', ...(localUpdates ? { DS_BOT_LOCAL_UPDATES: '1' } : {}), DS_BOT_USER_DSH_HOME: userDshHome(), ...(where.workspace ? { DS_BOT_WORKSPACE: where.workspace } : {}) },
     pnpm,
     onFailure: fail,
+    onRequest: (op, body) => {
+      if (!localUpdates) throw new Error('Local application updates are unavailable')
+      return localUpdates.dispatch(op, body)
+    },
   })
   // A failed check is not a failed start: start() rejects, and the copy goes on unchecked.
   const newCheck = (home, list) => {
@@ -265,7 +288,16 @@ async function start() {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(iconFile)
   createWindow()
   // The launch URL trades its token for the Host's cookie and goes on to the page.
-  void ready.then(({ url }) => mainWindow?.loadURL(url)).catch(() => {})
+  void ready.then(async ({ url }) => {
+    await mainWindow?.loadURL(url)
+    const id = process.argv.find(arg => arg.startsWith('--ds-bot-local-update='))?.split('=')[1]
+    if (!id || !JOB_ID.test(id) || !localUpdates) return
+    for (let attempt = 0; attempt < 120 && mainWindow; attempt++) {
+      const uiReady = await mainWindow.webContents.executeJavaScript("Boolean(document.querySelector('.bt-tile, .bt-row') && document.querySelector('textarea, [contenteditable=true]'))").catch(() => false)
+      if (uiReady) { await localUpdates.acknowledge(id, { pid: process.pid, uiReady: true }); return }
+      await sleep(500)
+    }
+  }).catch(() => {})
 }
 
 // The Host starts once on the new data location first: DSH then sets up its project list

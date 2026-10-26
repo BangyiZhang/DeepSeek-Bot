@@ -29,6 +29,7 @@ export function install(rt) {
     if (role === 'report') return `[Group chat "${roomName}" · replies to your post${goesOn}]`
     if (role === 'kickoff') return '[Bot team setup]'
     if (role === 'secret') return '[Secret card]'
+    if (role === 'desktop-update') return '[Desktop application update receipt]'
     if (role === 'durable') return '[Durable task update]'
     if (audience === 'user') return `[Message from ${fromName} · the user sees your reply here]`
     return `[Message from ${fromName}]`

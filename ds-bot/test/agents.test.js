@@ -205,7 +205,8 @@ test('TEAM_TOOLS names exactly the tools ds-bot registers', async (t) => {
   // read_browser registers only in the Desktop profile; the flag stands in for it.
   const { stop, ctx } = start(TEAM, { config: { browser: true } })
   t.after(stop)
-  assert.deepEqual([...ctx.registeredTools.keys()].sort(), [...TEAM_TOOLS].sort())
+  const desktopOnly = new Set(['request_desktop_update', 'get_desktop_update'])
+  assert.deepEqual([...ctx.registeredTools.keys()].sort(), TEAM_TOOLS.filter(name => !desktopOnly.has(name)).sort())
 })
 
 test('agent-session honors a known workspace and falls back to the team workspace', async (t) => {
