@@ -22,6 +22,7 @@ export class HostProcess {
   #stderr = ''
   #stopping = false
   #failed = false
+  #messageListeners = new Set()
 
   /**
    * @param {{ entry: string, cwd: string, env: NodeJS.ProcessEnv, pnpm: string, onFailure: (error: Error) => void }} options
@@ -49,6 +50,7 @@ export class HostProcess {
         this.#stderr = (this.#stderr + chunk).slice(-STDERR_TAIL_CHARS)
       })
       child.on('message', (message) => {
+        for (const listener of this.#messageListeners) listener(message)
         if (message?.type === 'ready') resolve({ url: message.url, injections: message.injections })
         else if (message?.type === 'checked') resolve({ unreadable: message.unreadable })
         else if (message?.type === 'fatal') this.#fail(new Error(message.message), reject)
@@ -69,6 +71,13 @@ export class HostProcess {
   request(op, body) {
     if (!this.#rpc) return Promise.reject(new Error('The Host is not ready'))
     return this.#rpc.request(op, body)
+  }
+
+  onMessage(listener) { this.#messageListeners.add(listener); return () => this.#messageListeners.delete(listener) }
+
+  send(message) {
+    if (!this.#child?.connected) throw new Error('The DSH Host IPC channel is closed')
+    this.#child.send(message)
   }
 
   /** Ask the Host to shut down, then end it if it does not exit in time. */

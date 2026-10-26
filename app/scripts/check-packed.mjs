@@ -136,6 +136,25 @@ function micaRules() {
     .filter(rule => rule.length > 0)
 }
 
+async function checkBotBrowser(evaluate, until, botId) {
+  const tabId = 'packaged-browser-probe'
+  const args = `${JSON.stringify(botId)}, ${JSON.stringify(tabId)}`
+  await evaluate(`window.dsBotApp.browser.views.create(${args}, 'about:blank')`)
+  try {
+    await until(`window.dsBotApp.browser.views.sync(${JSON.stringify(botId)}).then(tabs => tabs.some(tab => tab.tabId === ${JSON.stringify(tabId)} && tab.url === 'about:blank' && !tab.loading))`, 'the native Bot browser')
+    await evaluate(`window.dsBotApp.browser.views.place(${JSON.stringify(tabId)}, { left: 100, top: 100, width: 320, height: 240 }, true)`)
+    const url = await evaluate(`window.dsBotApp.browser.views.read(${args}, 'location.href')`)
+    if (url !== 'about:blank') throw new Error('the native Bot browser did not load its isolated page')
+    await evaluate(`window.dsBotApp.browser.views.hold(${JSON.stringify(botId)}, true)`)
+    await evaluate(`window.dsBotApp.browser.views.hold(${JSON.stringify(botId)}, false)`)
+  } finally {
+    await evaluate(`window.dsBotApp.browser.views.close(${args})`)
+  }
+  const remaining = await evaluate(`window.dsBotApp.browser.views.sync(${JSON.stringify(botId)})`)
+  if (remaining.some(tab => tab.tabId === tabId)) throw new Error('the native Bot browser did not close')
+  console.log('check-packed: native Bot browser creation, rendering, takeover and cleanup passed')
+}
+
 async function checkMessageSpacing(evaluate) {
   const messages = await evaluate(`(() => {
     return [...document.querySelectorAll('[data-chat-flow] .bt-bubble,[data-chat-flow] [class*="_userRow"] [class*="_bubble"]')].map(node => {
@@ -173,10 +192,10 @@ async function checkHeaderPill(cdp, evaluate, until) {
     do {
       const point = await evaluate(`(() => {
         const rect = document.querySelector('.bt-pill').getBoundingClientRect()
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, hovered: document.querySelector('.bt-pill').matches(':hover') }
       })()`)
       await evaluate('document.activeElement?.blur()')
-      await cdp.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hover ? point.x : 1100, y: hover ? point.y : 800 })
+      if (point.hovered !== hover) await cdp.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hover ? point.x : 1100, y: hover ? point.y : 800 })
       // The sidebar spring moves the pill after its collapsed attribute changes.
       // Re-target its current bounds and wait for actual hover and final geometry.
       await sleep(100)
@@ -268,7 +287,7 @@ async function chat(cdp) {
   const until = async (expression, label, ms = 120_000) => {
     const end = Date.now() + ms
     while (Date.now() < end) {
-      if (await evaluate(`Boolean(${expression})`)) return
+      if (await evaluate(`Promise.resolve(${expression}).then(Boolean)`)) return
       await sleep(250)
     }
     throw new Error(`timed out waiting for ${label}`)
@@ -360,6 +379,7 @@ async function chat(cdp) {
   }
   await checkMessageSpacing(evaluate)
   await checkHeaderPill(cdp, evaluate, until)
+  await checkBotBrowser(evaluate, until, main)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 

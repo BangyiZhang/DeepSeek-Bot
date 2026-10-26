@@ -518,6 +518,7 @@ export function install(rt) {
     capabilityFingerprint: bot => {
       const names = [...expandCapabilityNames(bot.capabilities, library())].sort()
       const definitions = [...new Set([...(bot.capabilities ?? []), ...names])].sort().map(name => own(library(), name))
+      if (rt.config.browserPlugin || rt.config.browserPluginApi) definitions.push({ browserPlugin: rt.config.browserPlugin ?? rt.config.browserPluginApi.id ?? 'injected' })
       return { names: [...(bot.capabilities ?? [])].sort(), digest: createHash('sha256').update(JSON.stringify(definitions)).digest('hex') }
     },
     requireCapabilities: async (sessionId, agent) => {

@@ -160,6 +160,7 @@ export function install(rt) {
     }
     const source = await rt.resolveAgent(rt.chatOf(bot.id))
     if (presets.current(source.session) !== execution.permission || rt.sessionFolder(source.session) !== execution.cwd) throw new Error('The originating Bot\'s execution scope changed; review the task before continuing')
+    if (execution.botManaged && execution.capabilities.names.length) await rt.requireCapabilities(rt.chatOf(bot.id), source)
     if (typeof ctx.tools?.schemas !== 'function') throw new Error('The durable worker tool scope cannot be verified')
     const allowed = new Set(execution.allowedTools)
     const sourceTools = new Set(callableTools(source))
