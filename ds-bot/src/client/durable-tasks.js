@@ -3,6 +3,7 @@ import { call } from './api.js'
 import { PlusIcon, TrashIcon } from './icons.js'
 import { hostText, t } from './i18n.js'
 import { DurablePlan } from './durable-plan.js'
+import { DurableHistory } from './durable-history.js'
 
 const MAX_STEPS = 20
 const MAX_PROMPT = 24000
@@ -68,11 +69,6 @@ const CSS = `
 .bt-durable-job progress::-webkit-progress-value{background:var(--bt-accent);border-radius:999px}
 .bt-durable-job progress::-moz-progress-bar{background:var(--bt-accent);border-radius:999px}
 .bt-durable-job[data-kind=completed] progress::-webkit-progress-value{background:var(--bt-ink-3)}
-.bt-durable-results{display:flex;flex-direction:column;gap:8px}
-.bt-durable-result{border:1px solid var(--bt-line);border-radius:10px;overflow:hidden}
-.bt-durable-result summary{padding:9px 12px;color:var(--bt-ink-2);font-size:12px;line-height:18px;cursor:pointer}
-.bt-durable-result summary:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-3px}
-.bt-durable-result pre{margin:0;padding:0 12px 12px;font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:21px;max-height:320px;overflow:auto;color:var(--bt-ink)}
 .bt-durable-session{margin-top:4px;align-self:flex-start}
 .bt-durable-review{margin:0;font-size:12px;line-height:19px;color:var(--bt-ink-2)}
 .bt-durable-list-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
@@ -99,15 +95,12 @@ function Job({ job, actions, refresh, readOnly }) {
     summary.kind === 'pausing' ? h('p', { className: 'bt-durable-review' }, t('The current step will finish and save before pausing.')) : summary.kind === 'paused' && job.origin ? h('p', { className: 'bt-durable-review' }, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
     h(DurablePlan, { job, summary }),
+    h(DurableHistory, { job, summary }),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     summary.kind === 'preparing' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session', disabled: resuming || readOnly, onClick: resume }, t(resuming ? 'Preparing…' : 'Resume setup')) : null,
     summary.kind === 'review' ? h('p', { className: 'bt-durable-review' }, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,
     ['needs_reconciliation', 'unavailable'].includes(job.notification?.status) ? h('p', { className: 'bt-durable-review' }, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
     summary.kind === 'failed' && summary.error ? h('div', { className: 'bt-error', role: 'alert' }, hostText(summary.error)) : null,
-    summary.results.length > 0 ? h('div', { className: 'bt-durable-results' }, summary.results.map((result, index) =>
-      h('details', { key: index, className: 'bt-durable-result' },
-        h('summary', null, t('Step {number} result', { number: index + 1 })),
-        h('pre', null, typeof result === 'string' ? result : JSON.stringify(result, null, 2))))) : null,
     actions.openAgentSession && job.sessionIds?.length ? h('button', {
       type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session',
       onClick: () => openSession(job.sessionIds[Math.min(summary.completed, job.sessionIds.length - 1)]),

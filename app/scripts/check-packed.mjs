@@ -439,6 +439,32 @@ async function chat(cdp) {
   await until(`fetch('api/bot', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({endpoint:'durable-state',payload:{key:${JSON.stringify(planJob.key)}}}) }).then(r=>r.json()).then(r=>r.value.jobs[0]?.state.outcome?.status === 'completed')`, 'all three planned stages finishing')
   await until(`(${planProbe})?.states.every(state=>state==='completed')`, 'the conversation card showing all steps completed')
   console.log('check-packed: three-step conversation plan shows saved/current/pending stages, supports both themes and narrow layout, and updates to all completed')
+  const historyProbe = `(() => {
+    const card = [...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes')
+    const question = card?.querySelector('.bt-task-history-question')
+    return { question:question?.textContent ?? '', answer:question?.querySelector('.bt-task-history-answer')?.textContent ?? '',
+      entries:card?.querySelectorAll('.bt-task-history-list>li').length ?? 0, canAnswer:!!question?.querySelector('button'),
+      overflow:card ? card.scrollWidth > card.clientWidth + 1 : true }
+  })()`
+  await until(`(${historyProbe}).answer.includes('Continue')`, 'the saved answer appearing in task history')
+  const savedHistory = (await api('durable-state', { key: planJob.key })).jobs[0].history
+  if (savedHistory?.questions.length !== 1 || savedHistory.questions[0].status !== 'answered' || savedHistory.questions[0].answer !== 'Continue'
+    || !savedHistory.events.some(event => event.type === 'answer_continued') || !savedHistory.events.some(event => event.type === 'completed')) throw new Error('Task history did not retain its answer and lifecycle')
+  await cdp.call('Page.reload', {})
+  await until(`(${historyProbe}).answer.includes('Continue')`, 'saved question and answer after reloading the packaged app')
+  for (const theme of ['dark', 'light']) {
+    await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
+    await until(`document.body.hasAttribute('data-ds-dark-theme') === ${theme === 'dark'}`, `the ${theme} task history`)
+    const history = await evaluate(historyProbe)
+    if (!history.question.includes('Proceed with planned changes?') || !history.answer.includes('Continue') || history.canAnswer || history.overflow) throw new Error(`Invalid read-only task history: ${JSON.stringify(history)}`)
+  }
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 640, height: 900, deviceScaleFactor: 1, mobile: false })
+  if ((await evaluate(historyProbe)).overflow) throw new Error('Task history overflows its narrow conversation column')
+  await evaluate("[...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes').querySelector('.bt-task-history-more')?.click()")
+  await until(`(${historyProbe}).entries === ${savedHistory.events.length + savedHistory.questions.length}`, 'all saved activity entries expanding')
+  await cdp.call('Emulation.clearDeviceMetricsOverride')
+  await cdp.call('Emulation.setEmulatedMedia', { features: [] })
+  console.log('check-packed: task questions, answers and activity survive reload, remain read-only, and render in both themes and a narrow column')
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 

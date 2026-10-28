@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import { call } from './api.js'
 import { durableTaskSummary } from './durable-tasks.js'
 import { DurablePlan } from './durable-plan.js'
+import { DurableHistory } from './durable-history.js'
 import { hostText, t } from './i18n.js'
 
 export function durableAdmission(content) {
@@ -51,6 +52,7 @@ export function DurableChatTask({ admission, title, stepCount, steps, actions })
     summary ? h('div', { className: 'bt-durable-chat-progress' },
       h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') })) : null,
     h(DurablePlan, { job, summary, steps }),
+    job ? h(DurableHistory, { job, summary }) : null,
     summary?.kind === 'pausing' ? h('p', null, t('The current step will finish and save before pausing.')) : summary?.kind === 'paused' ? h('p', null, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     reportNeedsReview ? h('p', null, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
     summary?.kind === 'review' ? h('p', null, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,

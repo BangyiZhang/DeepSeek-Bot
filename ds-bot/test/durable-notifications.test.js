@@ -310,3 +310,14 @@ test('failed task report preserves concrete execution evidence and bounded parti
   assert.match(text, /Earlier stage saved/)
   assert.match(text, /Do not execute, recreate, retry/)
 })
+
+test('cancelled task reports keep unfinished output separate from saved stage counts', () => {
+  const text = durableNotificationText(metadata({ prompts: ['Inspect', 'Apply'] }), {
+    state: { status: 'terminal', outcome: { status: 'aborted', result: ['Inspection saved'] } },
+    partialResult: { step: 1, text: 'Apply was interrupted; inspect the files before retrying.' },
+  })
+  assert.match(text, /Saved stages: 1\/2/)
+  assert.match(text, /unfinished stage 2/)
+  assert.match(text, /not a completed stage/)
+  assert.match(text, /Apply was interrupted/)
+})

@@ -8,6 +8,7 @@ import { TEAM_TOOLS } from '../constants.js'
 import { matchesTaskInput, isExecutionContext } from './dsh.js'
 import { captureBotContext } from './context.js'
 import { taskStepTitle } from '../../shared/durable-steps.js'
+import { taskHistory } from './history.js'
 
 const own = (object, key) => object != null && Object.hasOwn(object, key) ? object[key] : undefined
 const taskReads = new Set(['recall', 'read_own_chat', 'read_browser', 'list_capabilities'])
@@ -120,9 +121,10 @@ export function install(rt) {
         const record = await operation(input)
         return record?.result ? { ...record, result: rt.redactSecrets?.(record.result) ?? record.result } : record
       }
-      const executor = { inspect: scoped(dsh.inspect, true), dispatch: scoped(dsh.dispatch), stop: input => {
+      const executor = { inspect: scoped(dsh.inspect, true), dispatch: scoped(dsh.dispatch), stop: async input => {
         workerStops.add(input.sessionId)
-        return dsh.stop(input)
+        const record = await dsh.stop(input)
+        return record?.result ? { ...record, result: rt.redactSecrets?.(record.result) ?? record.result } : record
       } }
       runtime = await openDurableRuntime({
         database: join(directory, 'tasks.sqlite'), executor,
@@ -295,8 +297,11 @@ export function install(rt) {
       const sessions = metadata?.sessions ?? record?.input?.steps.map(step => step.sessionId) ?? []
       const steps = Array.from({ length: stageCount }, (_, index) => ({ title: taskStepTitle(rt.redactSecrets?.(metadata?.prompts[index] ?? '') ?? metadata?.prompts[index]) }))
       jobs.push({ key, title, stepCount: stageCount, steps, sessionIds: sessions, taskId: record?.id ?? null,
+        ...(body.key !== undefined ? { history: taskHistory(record ?? metadata, sessions, rt.redactSecrets) } : {}),
+        historyVersion: `${(record ?? metadata)?.events?.at(-1)?.id ?? ''}:${record?.questions?.length ?? 0}:${record?.questions?.at(-1)?.answeredAt ?? ''}:${record?.state?.status ?? ''}:${record?.abortRequested ?? false}`,
         ...(metadata?.origin ? { origin: metadata.origin, ownerName: rt.botOf(metadata.origin.botId)?.name ?? 'Unavailable Bot', botManaged: metadata.execution?.botManaged === true } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
         ...(record?.cancellation ? { cancellation: record.cancellation } : {}),
+        ...(record?.partialResult ? { partialResult: { step: record.partialResult.step, text: rt.redactSecrets?.(record.partialResult.text) ?? record.partialResult.text } } : {}),
         ...(record?.question ? { question: record.question } : {}),
         pauseRequested: record?.pauseRequested ?? metadata?.pauseRequested === true,
         paused: record ? record.pauseRequested === true && record.state.status === 'waiting' && record.state.checkpoint?.paused === true : metadata?.pauseRequested === true,

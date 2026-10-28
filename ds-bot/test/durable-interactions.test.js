@@ -54,6 +54,14 @@ test('question survives restart and its answer continues the same session withou
   assert.match(b.calls[1].prompt, /Apply only the checked change/)
   await b.reopen()
   assert.equal(b.calls.length, 2)
+  const saved = await b.runtime.get('task')
+  assert.equal(saved.question, undefined)
+  assert.equal(saved.questions[0].question, question.question)
+  assert.equal(saved.questions[0].answer, 'Apply only the checked change')
+  assert.ok(saved.questions[0].answeredAt >= saved.questions[0].askedAt)
+  assert.deepEqual(saved.events.filter(event => ['created', 'answer_continued', 'step_completed', 'completed'].includes(event.type)).map(event => event.type),
+    ['created', 'answer_continued', 'step_completed', 'completed'])
+  assert.equal(saved.events.filter(event => event.type === 'step_completed').length, 1)
   await assert.rejects(b.runtime.answerQuestion('task', question.id, 'again'), /finished|no longer|already/)
 })
 
@@ -65,6 +73,10 @@ test('waiting task can be cancelled and a late answer cannot restart it', async 
   await assert.rejects(b.runtime.answerQuestion('task', question.id, 'Apply'), /finished|cancelling/)
   await b.reopen()
   assert.equal(b.calls.length, 1)
+  const saved = await b.runtime.get('task')
+  assert.equal(saved.questions[0].question, question.question)
+  assert.equal(saved.questions[0].answer, undefined)
+  assert.equal(saved.events.at(-1).type, 'cancelled')
 })
 
 test('answer does not bypass a manual pause; duplicate and wrong question answers are refused', async t => {
@@ -80,6 +92,11 @@ test('answer does not bypass a manual pause; duplicate and wrong question answer
   await b.runtime.resume('task')
   assert.equal((await b.runtime.wait('task')).state.outcome.status, 'completed')
   assert.equal(b.calls.length, 2)
+  const events = (await b.runtime.get('task')).events.map(event => event.type)
+  assert.equal(events.filter(type => type === 'pause_requested').length, 1)
+  assert.equal(events.filter(type => type === 'paused').length, 1)
+  assert.equal(events.filter(type => type === 'resume_requested').length, 1)
+  assert.ok(events.indexOf('paused') < events.indexOf('answer_continued'))
 })
 
 test('one stable tool call creates one question and foreign workers cannot ask for the task', async t => {

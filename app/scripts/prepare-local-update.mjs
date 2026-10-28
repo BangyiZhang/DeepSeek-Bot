@@ -47,7 +47,7 @@ const npm = (name, project, args) => process.env.npm_execpath
   ? run(name, process.execPath, [process.env.npm_execpath, '--prefix', project, ...args])
   : run(name, 'npm', ['--prefix', project, ...args])
 await npm('plugin-build', 'ds-bot', ['run', 'build'])
-for (const file of ['index.js', 'client.js', 'web-search.js', 'cordis.patch.yml', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'index.js', 'client.js', 'web-search.js', 'cordis.patch.yml', 'README.md', 'LICENSE']) {
   await cp(join(root, 'ds-bot', file), join(root, 'app', 'node_modules', 'ds-bot', file))
 }
 for (const path of ['src/host', 'src/shared']) await cp(join(root, 'ds-bot', path), join(root, 'app', 'node_modules', 'ds-bot', path), { recursive: true })
