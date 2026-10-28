@@ -390,6 +390,7 @@ async function chat(cdp) {
   await until(`document.body.innerText.includes('Confirm HITL fixture continuation?')`, 'the durable task question in the Bot chat')
   const held = (await api('durable-state')).jobs.at(-1)
   if (!held.question || held.state.status === 'terminal') throw new Error('the question must keep its original task unfinished')
+  await until("!!document.querySelector('.bt-q-dock .bt-q-opt') && document.querySelector('.bt-q-dock').textContent.includes('Confirm HITL fixture continuation?')", 'the interactive durable question dock, independently of its history record')
   for (const theme of ['dark', 'light']) {
     await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
     await until(`document.body.hasAttribute('data-ds-dark-theme') === ${theme === 'dark'}`, `the ${theme} question card`)
