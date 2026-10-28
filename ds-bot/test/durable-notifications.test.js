@@ -298,3 +298,15 @@ test('notification admission is atomic and delivered receipts cannot be reopened
   await assert.rejects(b.tasks.settleNotification('chat-task', { exchangeId, status: 'needs_reconciliation' }), /cannot be reopened/)
   await assert.rejects(b.tasks.settleNotification('chat-task', { exchangeId, status: 'queued' }), /cannot be reopened/)
 })
+
+test('failed task report preserves concrete execution evidence and bounded partial progress', () => {
+  const text = durableNotificationText(metadata(), { state: { status: 'terminal', outcome: { status: 'failed', error: {
+    code: 'NEEDS_RECONCILIATION', message: 'Worker blocked after its read.', completed: 1, results: ['Earlier stage saved.'],
+    execution: { sessionId: 'worker', requestId: 'task:1', status: 'interrupted', endReason: 'blocked', partial: 'Read three files; no changes applied.', activity: { tools: [{ name: 'read', seq: 12 }], foreignSources: [] } },
+  } } } })
+  assert.match(text, /Worker blocked after its read/)
+  assert.match(text, /endReason.*blocked/)
+  assert.match(text, /Read three files; no changes applied/)
+  assert.match(text, /Earlier stage saved/)
+  assert.match(text, /Do not execute, recreate, retry/)
+})

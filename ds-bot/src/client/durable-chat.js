@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { call } from './api.js'
 import { durableTaskSummary } from './durable-tasks.js'
+import { DurablePlan } from './durable-plan.js'
 import { hostText, t } from './i18n.js'
 
 export function durableAdmission(content) {
@@ -10,7 +11,7 @@ export function durableAdmission(content) {
   } catch { return null }
 }
 
-export function DurableChatTask({ admission, title, stepCount, actions }) {
+export function DurableChatTask({ admission, title, stepCount, steps, actions }) {
   const [job, setJob] = useState(null)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
@@ -36,18 +37,20 @@ export function DurableChatTask({ admission, title, stepCount, actions }) {
     void tick()
     return () => { controller.abort(); clearTimeout(timer) }
   }, [admission.key, refresh])
-  const summary = job ? durableTaskSummary(job) : null
+  const summary = durableTaskSummary(job ?? { stepCount: stepCount ?? steps?.length ?? 0, state: { status: 'preparing' } })
   const notification = job?.notification
   const reportNeedsReview = ['needs_reconciliation', 'unavailable'].includes(notification?.status)
   const awaitingReply = summary?.kind === 'completed' && job.origin && !notification?.status?.match(/^(delivered|needs_reconciliation|unavailable)$/)
   const kind = reportNeedsReview ? 'review' : summary?.kind ?? 'preparing'
+  const status = reportNeedsReview ? t('Needs review') : awaitingReply ? t('Waiting for Bot reply')
+    : summary.kind === 'working' && summary.completed < summary.count ? t('Running step {number} of {count}', { number: summary.completed + 1, count: summary.count }) : t(summary.label)
   return h('section', { className: 'bt-durable-chat', 'data-kind': kind, 'aria-label': t('Durable task') },
     h('div', { className: 'bt-durable-chat-head' },
       h('strong', null, job?.title ?? title ?? admission.title ?? t('Untitled task')),
-      h('span', { className: 'bt-durable-chat-status', role: 'status' }, t(reportNeedsReview ? 'Needs review' : awaitingReply ? 'Waiting for Bot reply' : summary?.label ?? 'Preparing task'))),
+      h('span', { className: 'bt-durable-chat-status', role: 'status' }, status)),
     summary ? h('div', { className: 'bt-durable-chat-progress' },
-      h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
-      h('span', null, t('{done} of {count} steps saved', { done: summary.completed, count: summary.count }))) : null,
+      h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') })) : null,
+    h(DurablePlan, { job, summary, steps }),
     summary?.kind === 'pausing' ? h('p', null, t('The current step will finish and save before pausing.')) : summary?.kind === 'paused' ? h('p', null, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     reportNeedsReview ? h('p', null, t('The result is saved. Check task details because its return to this chat could not be confirmed.')) : null,
     summary?.kind === 'review' ? h('p', null, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,

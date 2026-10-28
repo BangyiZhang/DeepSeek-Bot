@@ -495,7 +495,7 @@ export function install(rt) {
           if (own !== undefined) rt.dropKickoff(own)
           // Any user message answers or supersedes the open question card and view card.
           let dropped = false
-          if (state.questions[id] !== undefined) {
+          if (state.questions[id] !== undefined && !state.questions[id].durable) {
             delete state.questions[id]
             dropped = true
           }

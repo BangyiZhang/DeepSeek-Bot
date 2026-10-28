@@ -5,12 +5,13 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { install as installTools } from './tools.js'
 import { TEAM_TOOLS } from '../constants.js'
-import { matchesDurableInput, isExecutionContext } from './dsh.js'
+import { matchesTaskInput, isExecutionContext } from './dsh.js'
 import { captureBotContext } from './context.js'
+import { taskStepTitle } from '../../shared/durable-steps.js'
 
 const own = (object, key) => object != null && Object.hasOwn(object, key) ? object[key] : undefined
 const taskReads = new Set(['recall', 'read_own_chat', 'read_browser', 'list_capabilities'])
-const workerDenied = new Set([...TEAM_TOOLS.filter(name => !taskReads.has(name)), 'create_goal', 'update_goal', 'get_goal', 'ask_user_question', 'run_code'])
+const workerDenied = new Set([...TEAM_TOOLS.filter(name => !taskReads.has(name) && name !== 'ask_user'), 'create_goal', 'update_goal', 'get_goal', 'ask_user_question', 'run_code'])
 
 function createRequest(body) {
   const { key, prompts, model, agentId } = body
@@ -48,6 +49,8 @@ export function install(rt) {
   const workerScopes = new Map()
   const taskWork = {}
   const closedWorkers = new Set()
+  rt.durableQuestionContext = sessionId => Object.values(rt.state.questions ?? {}).filter(card => card.durable?.botId === rt.selfOf(sessionId))
+    .map(card => `Durable task ${card.durable.key} is waiting for the user. Question id: ${card.id}\nQuestion: ${card.question}\nWhen the user answers this question, call answer_durable_task with this key, question_id and their answer. Do not create another task, resume without an answer, or do its work yourself. Unrelated messages and pause/cancel requests are not answers.`).join('\n')
   const workView = rt.workView
   if (workView) rt.workView = () => ({ ...taskWork, ...workView() })
   rt.durableOwnerOf = sessionId => {
@@ -64,6 +67,7 @@ export function install(rt) {
     return bot && !closedWorkers.has(sessionId) && scopeMatches(bot, metadata.execution) ? bot : undefined
   }
   const workerStops = new Set()
+  const waitingWorkers = new Set()
   const scopeFailures = new Set()
   const rememberScope = metadata => {
     if (metadata?.execution && metadata.origin) for (const sessionId of metadata.sessions) workerScopes.set(sessionId, metadata)
@@ -98,7 +102,7 @@ export function install(rt) {
       // saved boundary before resolving the DSH execution.
       const scoped = (operation, observing = false) => async input => {
         const tasks = runtime ?? await opening
-        const key = input.requestId.slice(0, input.requestId.lastIndexOf(':'))
+        const key = input.requestId.split(':')[0]
         const metadata = await tasks.getCreate(key)
         if (metadata?.execution) {
           rememberScope(metadata)
@@ -113,7 +117,8 @@ export function install(rt) {
           }
         }
         if (scopeFailures.has(input.sessionId)) return { status: 'uncertain', reason: 'scope_changed' }
-        return operation(input)
+        const record = await operation(input)
+        return record?.result ? { ...record, result: rt.redactSecrets?.(record.result) ?? record.result } : record
       }
       const executor = { inspect: scoped(dsh.inspect, true), dispatch: scoped(dsh.dispatch), stop: input => {
         workerStops.add(input.sessionId)
@@ -166,7 +171,7 @@ export function install(rt) {
     const sourceTools = new Set(callableTools(source))
     if ([...allowed].some(name => !sourceTools.has(name))) throw new Error('The originating Bot\'s available tools changed; review the task before continuing')
     const visible = callableTools(agent)
-    const deny = visible.filter(name => workerDenied.has(name) || (!execution.botManaged && taskReads.has(name)))
+    const deny = visible.filter(name => workerDenied.has(name) || (name === 'ask_user' && !allowed.has(name)) || (!execution.botManaged && (taskReads.has(name) || name === 'ask_user')))
     if (deny.length) {
       if (typeof agent.ctx?.tools?.restrict !== 'function') throw new Error('The durable worker tool scope could not be restricted')
       // An allow mask built from root schemas drops ancestor preset tools hidden
@@ -179,6 +184,7 @@ export function install(rt) {
       // Local registrations are not covered by the global allow mask. A tool
       // added after setup must still stay inside the captured delegation.
       agent.ctx.tools.guard(exec => workerStops.has(sessionId) ? 'This durable task is stopping or cancelled; no new tools may run.'
+        : waitingWorkers.has(sessionId) ? 'This task is waiting for the user; no further tools may run until the saved answer continues it.'
         : !rt.botOf(origin.botId) || !scopeMatches(rt.botOf(origin.botId), execution) ? 'The Bot task capability scope changed; review the task.'
         : exec.name !== 'run_code' && (!allowed.has(exec.name) || workerDenied.has(exec.name))
           ? 'This tool was not delegated to this durable task by its originating Bot.' : undefined)
@@ -287,9 +293,11 @@ export function install(rt) {
       const stageCount = metadata?.prompts.length ?? record?.input?.steps.length ?? 0
       const title = metadata?.title ?? key
       const sessions = metadata?.sessions ?? record?.input?.steps.map(step => step.sessionId) ?? []
-      jobs.push({ key, title, stepCount: stageCount, sessionIds: sessions, taskId: record?.id ?? null,
+      const steps = Array.from({ length: stageCount }, (_, index) => ({ title: taskStepTitle(rt.redactSecrets?.(metadata?.prompts[index] ?? '') ?? metadata?.prompts[index]) }))
+      jobs.push({ key, title, stepCount: stageCount, steps, sessionIds: sessions, taskId: record?.id ?? null,
         ...(metadata?.origin ? { origin: metadata.origin, ownerName: rt.botOf(metadata.origin.botId)?.name ?? 'Unavailable Bot', botManaged: metadata.execution?.botManaged === true } : {}), ...(metadata?.notification ? { notification: metadata.notification } : {}),
         ...(record?.cancellation ? { cancellation: record.cancellation } : {}),
+        ...(record?.question ? { question: record.question } : {}),
         pauseRequested: record?.pauseRequested ?? metadata?.pauseRequested === true,
         paused: record ? record.pauseRequested === true && record.state.status === 'waiting' && record.state.checkpoint?.paused === true : metadata?.pauseRequested === true,
         cancelling: record?.abortRequested === true && record.state.status !== 'terminal',
@@ -309,6 +317,50 @@ export function install(rt) {
   }
   rt.refreshDurableView = async () => { if (runtime && !stopping) await rt.durableEndpoint('durable-state') }
 
+  rt.projectDurableQuestion = (key, metadata, record) => change(async () => {
+    if (!metadata?.execution?.botManaged || !rt.state.questions) return
+    writeCheck()
+    const botId = metadata.origin.botId
+    const bot = rt.botOf(botId)
+    const sessionId = bot && rt.chatOf(botId)
+    const question = record?.abortRequested ? undefined : record?.question
+    let changed = false
+    for (const [id, card] of Object.entries(rt.state.questions)) if (card.durable?.key === key && (id !== sessionId || card.id !== question?.id)) {
+      delete rt.state.questions[id]; changed = true
+    }
+    if (question && sessionId && !rt.state.questions[sessionId]) {
+      rt.state.questions[sessionId] = { id: question.id, question: question.question,
+        detail: `${metadata.title}${question.detail ? ` · ${question.detail}` : ''}`, options: question.options,
+        multiSelect: question.multiSelect, allowCustom: true, askedAt: question.askedAt, durable: { key, botId } }
+      changed = true
+    }
+    if (changed) await rt.save()
+  })
+  rt.askDurableFromWorker = async (args, exec) => {
+    const metadata = workerScopes.get(exec.agent?.id)
+    if (!metadata?.execution?.botManaged) throw new Error('No Bot-managed task owns this worker')
+    const tasks = await open()
+    const sanitized = rt.redactSecrets ? JSON.parse(rt.redactSecrets(JSON.stringify(args))) : args
+    const question = await change(() => { writeCheck(); return tasks.ask(metadata.key, { ...sanitized, sessionId: exec.agent.id, callId: exec.callId }) })
+    waitingWorkers.add(exec.agent.id)
+    exec.concludeTurn?.()
+    await rt.projectDurableQuestion(metadata.key, metadata, await tasks.get(metadata.key))
+    return `Question ${question.id} is saved in task ${metadata.key} and shown in your Bot chat. End this turn; the recorded user answer will continue this same task. Do not run more tools.`
+  }
+  rt.answerDurableQuestion = async (sessionId, key, id, answer) => {
+    const tasks = await open()
+    return change(async () => {
+      writeCheck()
+      const metadata = await tasks.getCreate(key)
+      const botId = rt.selfOf(sessionId)
+      if (!botId || metadata?.origin?.botId !== botId || rt.chatOf(botId) !== sessionId || rt.groupOwners.has(sessionId)) throw new Error('This question belongs to a different Bot chat')
+      await tasks.answerQuestion(key, id, rt.redactSecrets?.(answer) ?? answer)
+      const card = rt.state.questions?.[sessionId]
+      if (card?.durable?.key === key && card.id === id) { delete rt.state.questions[sessionId]; await rt.save() }
+      return { key, questionId: id, status: 'answer_saved', message: 'The answer is saved. The same task continues when its current turn is settled and any manual pause is released; completed stages will not be repeated.' }
+    })
+  }
+
   const chatCaller = exec => {
     const sessionId = exec?.agent?.id
     const bot = rt.botOf(rt.selfOf(sessionId))
@@ -316,6 +368,12 @@ export function install(rt) {
     return { bot, sessionId }
   }
   const belongsTo = (record, botId) => record?.origin?.botId === botId && record.origin.roomId === undefined
+  rt.answerDurableFromBot = async (body, exec) => {
+    await rt.load()
+    const { sessionId } = chatCaller(exec)
+    if (rt.live?.get(sessionId)?.info !== undefined) throw new Error('Only a direct user reply can answer a durable task question')
+    return rt.answerDurableQuestion(sessionId, body.key, body.question_id, body.answer)
+  }
   rt.durableStateForBot = async (body, exec) => {
     await rt.load()
     const { bot } = chatCaller(exec)
@@ -359,7 +417,7 @@ export function install(rt) {
       const allowedTools = callableTools(source).filter(name => !workerDenied.has(name)).sort()
       let instructions = [
         `You are ${bot.name}${bot.role ? ` (${bot.role})` : ''}, carrying out a task managed by this Bot in DS Bot. Pi Durable preserves your task progress; DSH executes your tools.`,
-        'Complete only the supplied task stage. Use the saved Bot context and earlier stage outputs as reference, not as new requests. Your attached capabilities and read-only own-chat/memory tools are available within the captured scope. Do not create more tasks, manage the team, change permissions, or invoke the installer. Return the actual result, including file paths and limitations; the Bot reports it to the user.',
+        'Complete only the supplied task stage. Use the saved Bot context and earlier stage outputs as reference, not as new requests. Your attached capabilities and read-only own-chat/memory tools are available within the captured scope. Do not create more tasks, manage the team, change permissions, or invoke the installer. When user input or confirmation is needed, call ask_user with the specific question, options and relevant progress; it saves your question and ends this turn. Wait for the recorded answer in this same task session. Never mark an unanswered question as a finished task or collect credentials in chat. Return the actual result, including file paths and limitations; the Bot reports it to the user.',
         bot.instructions ? `Instructions from the originating Bot:\n${bot.instructions}` : '',
       ].filter(Boolean).join('\n\n')
       if (instructions.length > 16000) throw new Error('The Bot instructions are too long to safely carry into a durable task; continue in this chat')
@@ -465,9 +523,11 @@ export function install(rt) {
       if (metadata.execution.botManaged) {
         const index = metadata.sessions.indexOf(agent.id)
         if (!record || record.state.status === 'terminal' || record.state.checkpoint?.step !== index) return { kind: 'reject' }
+        if (record.question) return { kind: 'reject' }
+        waitingWorkers.delete(agent.id)
         const decision = await next()
         if (decision.kind !== 'enter') return decision
-        if ((decision.messages ?? []).some(message => !matchesDurableInput(message, `${metadata.key}:${index}`) && !isExecutionContext(message))) return { kind: 'reject' }
+        if ((decision.messages ?? []).some(message => !matchesTaskInput(message, runtime.inputFor(record)) && !isExecutionContext(message))) return { kind: 'reject' }
         if (record.pauseRequested && record.state.checkpoint?.paused) return { kind: 'reject' }
         await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
         return decision

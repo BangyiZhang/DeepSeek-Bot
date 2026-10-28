@@ -78,7 +78,7 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
     append(id, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); sessions.get(id).status = 'idle'
   }
   const rt = {
-    ctx, home, config: { durableTasks: enabled }, state: { bots, agents, prefs: {} }, live: new Map(), groupOwners: new Map([['group-chief', { botId: 'chief', roomId: 'room' }]]),
+    ctx, home, config: { durableTasks: enabled }, state: { bots, agents, prefs: {}, questions: {} }, save: async () => {}, live: new Map(), groupOwners: new Map([['group-chief', { botId: 'chief', roomId: 'room' }]]),
     load: async () => {}, readOnly: () => undefined, botOf: id => bots[id], selfOf: id => ['chief', 'peer', 'old-chief'].includes(id) ? id === 'old-chief' ? 'chief' : id : id === 'group-chief' ? 'chief' : undefined,
     chatOf: id => id, agentOf: id => Object.values(agents).find(agent => agent.sessions.includes(id)),
     resolveAgent: async id => sessions.get(id), sessionFolder: session => session.header.cwd, isFolder: async () => true,
@@ -455,4 +455,41 @@ test('Settings tasks use the same Bot owner, context and execution path as chat'
   assert.equal(job.botManaged, true)
   assert.deepEqual(b.rt.state.agents.raw.sessions, [])
   await assert.rejects(b.rt.durableEndpoint('durable-create', { key: 'settings-owned', botId: 'peer' }), /different Bot/)
+})
+
+test('worker question appears in its Bot chat and owner answer continues the original session', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  b.calls.sourceTools.push('ask_user'); b.calls.globalTools.push('ask_user')
+  const admitted = JSON.parse(await b.execute('create_durable_task', { title: 'Confirm work', steps: ['Read and ask before applying'] }))
+  await until(() => b.calls.prompts.length === 1)
+  const worker = (await b.ctx.sessionController.resolveAgent('worker-1')).agent
+  let concluded = false
+  await b.rt.askDurableFromWorker({ question: 'Apply?', detail: 'Inspection complete.', options: [{ label: 'Yes' }, { label: 'No' }] }, { agent: worker, callId: 'question-call', concludeTurn: () => { concluded = true } })
+  assert.equal(concluded, true)
+  assert.equal(b.rt.state.questions.chief.question, 'Apply?')
+  assert.equal(b.rt.state.questions.chief.durable.key, admitted.key)
+  assert.match(b.rt.durableQuestionContext('chief'), /answer_durable_task/)
+  const id = b.rt.state.questions.chief.id
+  b.complete(worker.id)
+  await until(async () => (await state(b, admitted.key)).state.status === 'waiting')
+  await assert.rejects(b.rt.answerDurableQuestion('peer', admitted.key, id, 'Yes'), /different Bot chat/)
+  await assert.rejects(b.rt.answerDurableQuestion('old-chief', admitted.key, id, 'Yes'), /different Bot chat/)
+  b.rt.live.set('chief', { info: { role: 'durable' } })
+  await assert.rejects(b.execute('answer_durable_task', { key: admitted.key, question_id: id, answer: 'Yes' }), /direct user reply/)
+  b.rt.live.delete('chief')
+  await b.execute('answer_durable_task', { key: admitted.key, question_id: id, answer: 'Yes' })
+  await until(() => b.calls.prompts.length === 2)
+  assert.equal(b.calls.prompts[1].sessionId, 'worker-1')
+  assert.match(b.calls.prompts[1].content[0].text, /User answer: Yes/)
+  assert.equal(b.rt.state.questions.chief, undefined)
+  b.complete(worker.id)
+  assert.equal((await until(async () => { const job = await state(b, admitted.key); return job.state.status === 'terminal' && job })).state.outcome.status, 'completed')
+})
+
+test('task status exposes the saved stage headings without worker context or instructions', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const admitted = JSON.parse(await b.execute('create_durable_task', { title: 'Named plan', steps: ['## Read the project\nLook only at the fixture.', '2. Report findings\nKeep evidence.'] }))
+  const job = await state(b, admitted.key)
+  assert.deepEqual(job.steps, [{ title: 'Read the project' }, { title: 'Report findings' }])
+  assert.equal(JSON.stringify(job.steps).includes('OWNER_CONTEXT'), false)
 })

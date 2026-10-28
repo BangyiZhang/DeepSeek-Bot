@@ -1,0 +1,13 @@
+# Durable questions in Bot chat
+
+The personal fork keeps DSH as the only executor and uses only public session, tool and approval APIs. Pi stores task questions and immutable answers; Bot projects them into its existing question-card dock. No DSH install is patched.
+
+A Bot-managed worker may call `ask_user` within its captured tool scope. The question is committed to Pi before the tool concludes its turn. The workflow parks on a Pi child-task gate rather than treating that completed DSH turn as a completed business stage. Questions have stable identities tied to task/session/tool-call, and only the originating Bot's current private chat can answer them. Cards queue without replacing another open card. Regular chat messages do not dismiss durable questions; the Bot can record an explicit user answer with `answer_durable_task`. Background reports cannot answer a question. Cancellation and ordinary manual pause remain independent controls.
+
+An answer is saved before the gate is released. The workflow admits a uniquely named continuation into the same stage session, retaining its previous conversation and completed actions. Recorded earlier request IDs are the only extra task inputs accepted by reconciliation. Gate releases are repaired on startup after a crash between saving an answer and waking its task. A manual pause still blocks continuation. Completed, cancelled, foreign, ambiguous and stale questions are never implicitly answered or replayed. Old tasks keep their captured tools, so this change does not grant new tools to existing contracts.
+
+DSH's exact `repeat-tool-reminder:notice` and `tool-jobs:notice` sources join the recognized engine context. Arbitrary user messages and other source/forms still fail closed. Failures retain the executor status, end reason, recent tool names/sequence numbers and bounded partial assistant output; the Bot report includes that evidence alongside saved completed stages. Partial output is reference material, not proof of completion.
+
+Native DSH permission approvals for hidden workers are surfaced in the owning Bot's chat using the existing approval card and one-time allow/reject API. They are never auto-approved by clarification answers. DSH owns the lifetime of an in-flight native approval: if a restart loses that tool execution, it remains a reconciliation case with evidence rather than a promise to replay side effects.
+
+Acceptance covers real Pi SQLite close/reopen, duplicate/stale answers, foreign Bot and background denial, manual pause/cancel, same-session DSH continuation, exact engine notices, preserved failure evidence, and isolated public-profile smoke tests with the mock model. Real user data and credentials are never used for tests.

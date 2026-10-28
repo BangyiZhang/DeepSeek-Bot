@@ -79,13 +79,19 @@ test('completed request reads the public transcript result; interrupted requests
   assert.equal((await fixture([own()]).executor.inspect(input)).status, 'interrupted')
 })
 test('exact engine context sources are allowed; arbitrary sources and embedded markers are foreign', async () => {
-  for (const [kind, form] of [['agent-instructions', 'instructions'], ['runtime-context', 'snapshot'], ['skill-catalog', 'catalog'], ['time-context', 'snapshot']]) {
+  for (const [kind, form] of [['agent-instructions', 'instructions'], ['runtime-context', 'snapshot'], ['skill-catalog', 'catalog'], ['time-context', 'snapshot'], ['repeat-tool-reminder', 'notice'], ['tool-jobs', 'notice']]) {
     const context = { type: 'user/message', data: { source: { kind, form }, content: text('context') } }
     assert.equal((await fixture([context, own(), end('completed')]).executor.inspect(input)).status, 'completed')
     assert.equal((await fixture([{ ...context, data: { ...context.data, source: { kind, form: 'other' } } }, own(), end('completed')]).executor.inspect(input)).status, 'uncertain')
   }
   assert.equal((await fixture([{ type: 'user/message', data: { content: text('a different request') } }]).executor.inspect(input)).reason, 'foreign_inputs')
   assert.equal((await fixture([{ type: 'user/message', data: { content: text(`Quoted ${own().data.content[0].text}`) } }]).executor.inspect(input)).status, 'uncertain')
+})
+test('recorded answer inputs reuse the same task session without admitting foreign input', async () => {
+  const continuation = { ...input, requestId: 'work:0:a1', priorRequestIds: ['work:0'] }
+  const f = fixture([own('work:0'), answer, end('completed'), own('work:0:a1'), answer, end('completed')])
+  assert.equal((await f.executor.inspect(continuation)).status, 'completed')
+  assert.equal((await f.executor.inspect({ ...continuation, priorRequestIds: [] })).reason, 'foreign_inputs')
 })
 test('duplicate input, foreign queued input and unowned running work are uncertain', async () => {
   assert.equal((await fixture([own(), own(), end('completed')]).executor.inspect(input)).reason, 'duplicate_inputs')

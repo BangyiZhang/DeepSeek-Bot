@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useId, useRef, useState } from 'react'
 import { call } from './api.js'
 import { PlusIcon, TrashIcon } from './icons.js'
 import { hostText, t } from './i18n.js'
+import { DurablePlan } from './durable-plan.js'
 
 const MAX_STEPS = 20
 const MAX_PROMPT = 24000
@@ -23,6 +24,7 @@ export function durableTaskSummary(job) {
     return { kind: review ? 'review' : 'failed', label: review ? 'Needs review' : 'Failed', count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === 'CANCEL_UNCONFIRMED' }
   }
   if (job.paused) return { kind: 'paused', label: 'Paused', count, completed, results }
+  if (job.question) return { kind: 'waiting', label: 'Waiting for your answer', count, completed, results }
   if (job.pauseRequested) return { kind: 'pausing', label: 'Pausing after current step', count, completed, results }
   if (state.status === 'preparing') return { kind: 'preparing', label: 'Preparing task', count, completed: 0, results }
   if (state.status === 'missing') return { kind: 'review', label: 'Needs review', count, completed, results }
@@ -94,9 +96,9 @@ function Job({ job, actions, refresh, readOnly }) {
       h('h4', { className: 'bt-durable-job-name' }, job.title || t('Untitled task')),
       h('span', { className: 'bt-durable-status', 'data-kind': summary.kind }, t(summary.label))),
     job.ownerName ? h('div', { className: 'bt-set-hint' }, t('Managed by {name}', { name: job.ownerName })) : null,
-    h('div', { className: 'bt-set-hint' }, t('{done} of {count} steps saved', { done: summary.completed, count: summary.count })),
     summary.kind === 'pausing' ? h('p', { className: 'bt-durable-review' }, t('The current step will finish and save before pausing.')) : summary.kind === 'paused' && job.origin ? h('p', { className: 'bt-durable-review' }, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
     h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
+    h(DurablePlan, { job, summary }),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     summary.kind === 'preparing' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-durable-session', disabled: resuming || readOnly, onClick: resume }, t(resuming ? 'Preparing…' : 'Resume setup')) : null,
     summary.kind === 'review' ? h('p', { className: 'bt-durable-review' }, t(summary.stopUnconfirmed ? 'Stopping could not be confirmed. This task may still be running. Check its work chat.' : 'Execution stopped at an uncertain step. Check the work chat before repeating an action.')) : null,

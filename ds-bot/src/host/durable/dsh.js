@@ -2,6 +2,7 @@
 const contextSources = new Set([
   'agent-instructions:instructions', 'runtime-context:snapshot',
   'skill-catalog:catalog', 'time-context:snapshot',
+  'repeat-tool-reminder:notice', 'tool-jobs:notice',
 ])
 const marker = requestId => `[DS Bot durable request ${requestId}]`
 const textOf = content => typeof content === 'string' ? content
@@ -9,6 +10,7 @@ const textOf = content => typeof content === 'string' ? content
 const sourceOf = message => `${message?.source?.kind ?? 'unknown'}:${message?.source?.form ?? 'unknown'}`
 export const matchesDurableInput = (message, requestId) => textOf(message?.content).startsWith(`${marker(requestId)}\n`)
 export const isExecutionContext = message => contextSources.has(sourceOf(message))
+export const matchesTaskInput = (message, input) => [input.requestId, ...(input.priorRequestIds ?? [])].some(id => matchesDurableInput(message, id))
 const queued = agent => [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
 const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value)
 
@@ -64,6 +66,8 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
     let text = ''
     let inputs = 0
     let foreignInputs = 0
+    const tools = []
+    const foreignSources = new Set()
     for (const event of records) {
       if (event?.type === 'turn/start') currentTurn = event.data?.turn
       if (event?.type === 'user/message' && matchesDurableInput(event.data, requestId)) {
@@ -73,7 +77,9 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
         ended = undefined
         text = ''
       } else if (event?.type === 'user/message') {
-        if (!contextSources.has(sourceOf(event.data))) foreignInputs += 1
+        if (!isExecutionContext(event.data) && !matchesTaskInput(event.data, input)) { foreignInputs += 1; foreignSources.add(sourceOf(event.data)) }
+      } else if (found && ended === undefined && event?.type === 'tool/call') {
+        tools.push({ name: event.data?.name, seq: event.seq })
       } else if (found && ended === undefined && event?.type === 'assistant/message') {
         const line = textOf(event.data?.message?.content)
         if (line) text = [text, line].filter(Boolean).join('\n')
@@ -83,14 +89,15 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
     }
     const inbox = queued(agent)
     const waiting = inbox.some(message => matchesDurableInput(message, requestId))
-    const foreignQueued = inbox.some(message => !matchesDurableInput(message, requestId) && !contextSources.has(sourceOf(message)))
+    const foreignQueued = inbox.some(message => !matchesTaskInput(message, input) && !isExecutionContext(message))
     const status = inputs > 1 || foreignInputs > 0 || foreignQueued ? 'uncertain' : ended === 'completed' ? 'completed'
       : ended !== undefined ? 'interrupted' : found ? (agent.status === 'running' ? 'running' : 'interrupted')
         : waiting ? 'running' : agent.status === 'idle' ? 'absent' : 'uncertain'
     return {
       sessionId, requestId, status, inputs, foreignInputs, sequence: Number(agent.session.seq),
+      activity: { tools: tools.slice(-20), foreignSources: [...foreignSources].slice(0, 20) },
       ...(inputs > 1 ? { reason: 'duplicate_inputs' } : foreignInputs > 0 ? { reason: 'foreign_inputs' } : foreignQueued ? { reason: 'foreign_queued' } : status === 'uncertain' ? { reason: 'unmatched_activity' } : {}),
-      ...(turn === undefined ? {} : { turn }), ...(ended === undefined ? {} : { endReason: ended }), ...(text ? { result: text } : {}),
+      ...(turn === undefined ? {} : { turn }), ...(ended === undefined ? {} : { endReason: ended }), ...(text ? { result: text.slice(-24000) } : {}),
     }
   }
   const dispatch = async input => {

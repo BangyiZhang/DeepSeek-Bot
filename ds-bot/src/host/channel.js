@@ -322,6 +322,7 @@ export function install(rt) {
           return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
         case 'dismiss-question':
           await rt.load()
+          if (rt.own(state.questions, body.sessionId)?.durable) return fail('Answer this task question, or pause or cancel its task in the Bot chat.', 'bot/invalid')
           if (rt.own(state.questions, body.sessionId) !== undefined) {
             delete state.questions[body.sessionId]
             await rt.save()
@@ -371,6 +372,8 @@ export function install(rt) {
           if (question === undefined || question.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
           const reply = questionReply(question, body.answer)
           if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
+          if (question.durable) return ok(await rt.answerDurableQuestion(sessionId, question.durable.key, question.id,
+            [...(body.answer?.selected ?? []).filter(label => question.options.some(option => option.label === label)), body.answer?.custom ?? ''].filter(Boolean).join('\n')))
           // Claim the question before queueing so a second answer is refused.
           delete state.questions[sessionId]
           try {

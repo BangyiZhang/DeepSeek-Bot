@@ -44,6 +44,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on session/event',
     'effect ds-bot: agent tool restrict retry',
     'on agent/created',
+    'tool answer_durable_task',
     'tool create_durable_task',
     'tool cancel_durable_task',
     'tool pause_durable_task',

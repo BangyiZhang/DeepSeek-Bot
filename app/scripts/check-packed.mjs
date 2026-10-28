@@ -33,6 +33,7 @@ mkdirSync(join(work, 'home'))
 mkdirSync(join(work, 'home', 'profiles', 'ds-bot'), { recursive: true })
 writeFileSync(join(work, 'home', 'profiles', 'ds-bot', 'cordis.patch.yml'), '- id: bot\n  config:\n    localCodex: false\n    localAntigravity: false\n    updateCheck: false\n    diagnosticsFile: false\n')
 mkdirSync(join(work, 'workspace'))
+writeFileSync(join(work, 'workspace', 'chat-facts.txt'), 'DURABLE_CHAT_FIXTURE_FACT: isolated confirmation fixture.\n')
 const children = []
 
 function stopChildren() {
@@ -235,7 +236,9 @@ async function checkHeaderPill(cdp, evaluate, until) {
     await cdp.call('Page.bringToFront')
     await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false })
     for (const dark of [false, true]) {
-      await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] })
+      // These are final-geometry checks; native background windows can throttle
+      // animation frames while another app has focus.
+      await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
       await until(`document.body.hasAttribute('data-ds-dark-theme') === ${dark}`, 'the color scheme')
       if (await evaluate(collapsed)) await toggle()
       await until(`!(${collapsed})`, 'the expanded Chief selection')
@@ -380,6 +383,62 @@ async function chat(cdp) {
   await checkMessageSpacing(evaluate)
   await checkHeaderPill(cdp, evaluate, until)
   await checkBotBrowser(evaluate, until, main)
+  const api = (endpoint, payload = {}) => evaluate(`fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(${JSON.stringify({ endpoint, payload })}) }).then(r => r.json()).then(r => { if (!r.ok) throw new Error(r.error?.message); return r.value })`)
+  await api('set-prefs', { durableTasks: true })
+  await api('update-bot', { id: main, workDir: join(work, 'workspace') })
+  await api('send', { sessionId: main, text: 'Durable HITL fixture' })
+  await until(`document.body.innerText.includes('Confirm HITL fixture continuation?')`, 'the durable task question in the Bot chat')
+  const held = (await api('durable-state')).jobs.at(-1)
+  if (!held.question || held.state.status === 'terminal') throw new Error('the question must keep its original task unfinished')
+  for (const theme of ['dark', 'light']) {
+    await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
+    await until(`document.body.hasAttribute('data-ds-dark-theme') === ${theme === 'dark'}`, `the ${theme} question card`)
+    const card = await evaluate(`(() => { const node = document.querySelector('.bt-q-dock'); const box = node?.getBoundingClientRect(); return box && { width: box.width, height: box.height, text: node.innerText, dismiss: !!node.querySelector('.bt-q-x') } })()`)
+    if (!card || card.width < 200 || card.height < 60 || !card.text.includes('Continue') || card.dismiss) throw new Error(`invalid durable question card: ${JSON.stringify(card)}`)
+    if (shotFile) {
+      const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
+      writeFileSync(resolve(`${shotFile}.${theme}.png`), Buffer.from(data, 'base64'))
+    }
+  }
+  await cdp.call('Emulation.setEmulatedMedia', { features: [] })
+  await evaluate("[...document.querySelectorAll('.bt-q-dock .bt-q-opt')].find(node => node.querySelector('.bt-q-label')?.textContent === 'Continue').click()")
+  await until(`fetch('api/bot', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({endpoint:'durable-state',payload:{key:${JSON.stringify(held.key)}}}) }).then(r=>r.json()).then(r=>r.value.jobs[0]?.state.outcome?.status === 'completed')`, 'the same task continuing after the card answer')
+  const resumed = (await api('durable-state', { key: held.key })).jobs[0]
+  if (resumed.taskId !== held.taskId || resumed.sessionIds[0] !== held.sessionIds[0] || !resumed.state.outcome.result[0].includes('HITL resumed in original session')) throw new Error('question answer lost task identity or its continuation result')
+  console.log('check-packed: durable question visible in both themes, real card answer continues the same Pi task and DSH session')
+  await until(`fetch('api/bot', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({endpoint:'durable-state',payload:{key:${JSON.stringify(held.key)}}}) }).then(r=>r.json()).then(r=>r.value.jobs[0]?.notification?.status === 'delivered')`, 'the saved task report reaching its Bot')
+  await until(`fetch('api/bot', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({endpoint:'state',payload:{}}) }).then(r=>r.json()).then(r=>!r.value.work.turns[r.value.bots.find(b=>b.id===${JSON.stringify(main)})?.sessionId ?? ${JSON.stringify(main)}])`, 'the Bot finishing its task report')
+  await api('send', { sessionId: main, text: 'Durable PLAN fixture' })
+  await until(`document.body.innerText.includes('Proceed with planned changes?')`, 'the second of three planned stages')
+  const planJob = (await api('durable-state')).jobs.at(-1)
+  const planProbe = `(() => {
+    const card = [...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes')
+    if (!card) return null
+    const rows = [...card.querySelectorAll('.bt-task-steps>li')]
+    const box = card.getBoundingClientRect()
+    return { names:rows.map(row=>row.querySelector('.bt-task-step-title').textContent), states:rows.map(row=>row.dataset.state), current:rows.findIndex(row=>row.getAttribute('aria-current')==='step'), count:card.querySelector('.bt-task-plan-count')?.textContent, width:box.width, overflow:card.scrollWidth > card.clientWidth + 1 }
+  })()`
+  await until(`JSON.stringify((${planProbe})?.states) === JSON.stringify(['completed','waiting','pending'])`, 'the chat card refreshing its saved/current/pending steps')
+  for (const theme of ['dark', 'light']) {
+    await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
+    await until(`document.body.hasAttribute('data-ds-dark-theme') === ${theme === 'dark'}`, `the ${theme} stage plan`)
+    const plan = await evaluate(planProbe)
+    if (JSON.stringify(plan?.names) !== JSON.stringify(['Read the project','Confirm the changes','Report the result']) || JSON.stringify(plan.states) !== JSON.stringify(['completed','waiting','pending']) || plan.current !== 1 || plan.overflow) throw new Error(`Invalid task plan: ${JSON.stringify(plan)}`)
+    if (shotFile) { const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' }); writeFileSync(resolve(`${shotFile}.plan-${theme}.png`), Buffer.from(data, 'base64')) }
+  }
+  await cdp.call('Emulation.setDeviceMetricsOverride', { width: 640, height: 900, deviceScaleFactor: 1, mobile: false })
+  await sleep(500)
+  if ((await evaluate(planProbe))?.overflow) throw new Error('Task plan overflows its narrow conversation column')
+  const planToggle = "[...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes').querySelector('.bt-task-plan-toggle')"
+  await evaluate(`${planToggle}.click()`)
+  await until(`${planToggle}.getAttribute('aria-expanded') === 'false'`, 'task steps collapsing')
+  await evaluate(`${planToggle}.click()`)
+  await cdp.call('Emulation.clearDeviceMetricsOverride')
+  await cdp.call('Emulation.setEmulatedMedia', { features: [] })
+  await evaluate("[...document.querySelectorAll('.bt-q-dock .bt-q-opt')].find(node=>node.querySelector('.bt-q-label')?.textContent==='Continue').click()")
+  await until(`fetch('api/bot', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({endpoint:'durable-state',payload:{key:${JSON.stringify(planJob.key)}}}) }).then(r=>r.json()).then(r=>r.value.jobs[0]?.state.outcome?.status === 'completed')`, 'all three planned stages finishing')
+  await until(`(${planProbe})?.states.every(state=>state==='completed')`, 'the conversation card showing all steps completed')
+  console.log('check-packed: three-step conversation plan shows saved/current/pending stages, supports both themes and narrow layout, and updates to all completed')
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 

@@ -59,6 +59,7 @@ export function install(rt) {
         '',
         durable ? 'Durable tasks are enabled for this team. Use the durable task tools for supported direct user work in your own chat.'
           : 'Durable tasks are disabled for this team. Do the requested work in this conversation; do not call create_durable_task unless the feature is enabled.',
+        rt.durableQuestionContext?.(id) ?? '',
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
       ].join('\n')

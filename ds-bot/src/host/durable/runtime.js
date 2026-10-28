@@ -43,7 +43,12 @@ export function validateChatContext(origin, execution) {
 
 export async function openDurableRuntime({ database, executor, pollMs = 250, observeMs = 15000, checkpoint = () => {}, onReport = () => {} }) {
   const Jobs = defineDoc({ kind: 'ds-bot.durable.jobs', version: 1, scope: 'session', history: 'latest', fork: 'initial', initial: () => ({ items: {} }), checkpointWhen: () => true })
-  const fail = (message, code = 'NEEDS_RECONCILIATION', progress) => ({ status: 'terminal', outcome: { status: 'failed', error: { message, code, ...(progress ? { completed: progress.step, results: progress.results } : {}) } } })
+  const fail = (message, code = 'NEEDS_RECONCILIATION', progress, record) => ({ status: 'terminal', outcome: { status: 'failed', error: { message, code,
+    ...(progress ? { completed: progress.step, results: progress.results } : {}),
+    ...(record ? { execution: { sessionId: record.sessionId, requestId: record.requestId, status: record.status,
+      ...(record.reason ? { reason: record.reason } : {}), ...(record.endReason ? { endReason: record.endReason } : {}),
+      ...(record.activity ? { activity: record.activity } : {}),
+      ...(record.result ? { partial: record.result.slice(-24000) } : {}) } } : {}) } } })
   const finish = async (task, runtime, ctx, result) => {
     const state = task.state.checkpoint
     const results = [...state.results, result]
@@ -62,8 +67,25 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
       const budget = Math.min(12000, 32000 - prompt.length - header.length)
       if (budget > 0) prompt += header + state.results.map((text, index) => `Phase ${index + 1}:\n${text}`).join('\n\n').slice(0, budget)
     }
-    return { ...step, prompt, requestId: `${task.input.key}:${state.step}` }
+    const base = `${task.input.key}:${state.step}`
+    if (state.answer) prompt = `Continue the same task stage in this session from its saved conversation. Do not repeat completed actions.\nQuestion: ${state.answer.question}\nUser answer: ${state.answer.text}\nThe answer applies only to this question and does not change your tool or permission scope.`
+    return { ...step, prompt, requestId: state.round ? `${base}:a${state.round}` : base, priorRequestIds: state.priorRequestIds ?? [] }
   }
+  const jobFor = async key => (await harness.snapshot(Jobs, context))?.items?.[key]
+  const questionFor = async task => (await jobFor(task.input.key))?.questions?.find(question => question.requestId === inputFor(task).requestId)
+  const holdQuestion = (task, runtime, ctx, question) => runtime.commit(async tx => {
+    const jobs = await tx.doc(Jobs)
+    const job = jobs.items[task.input.key]
+    const current = job.questions.find(item => item.id === question.id)
+    if (current.answer !== undefined) return { status: 'pending', checkpoint: task.state.checkpoint }
+    current.gate ??= await tx.createTask(Pause, {}, { ownership: { kind: 'task', taskId: task.id } })
+    return { status: 'waiting', checkpoint: task.state.checkpoint, on: [current.gate], policy: 'allSettled' }
+  }, ctx)
+  const afterQuestion = (task, runtime, ctx, question) => runtime.commit(() => ({ status: 'pending', checkpoint: {
+    ...task.state.checkpoint, phase: 'send', sent: false, round: (task.state.checkpoint.round ?? 0) + 1,
+    priorRequestIds: [...(task.state.checkpoint.priorRequestIds ?? []), inputFor(task).requestId],
+    answer: { question: question.question, text: question.answer },
+  } }), ctx)
   const observe = (task, runtime, ctx) => {
     const state = task.state.checkpoint
     const since = state.observingSince ?? runtime.now()
@@ -109,26 +131,32 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
         const record = await executor.inspect(input)
         if (record.reason === 'unmatched_activity') return observe(task, runtime, ctx)
         if (record.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
+        const question = await questionFor(task)
+        if (question && record.status === 'completed') {
+          if (question.answer === undefined) return holdQuestion(task, runtime, ctx, question)
+          if (await pauseRequested(task)) return park(task, runtime, ctx)
+          return afterQuestion(task, runtime, ctx, question)
+        }
         if (record.status === 'completed') return finish(task, runtime, ctx, record.result ?? '')
         if (record.status === 'absent' && !task.state.checkpoint.sent) {
           if (await pauseRequested(task)) return park(task, runtime, ctx)
           return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, phase: 'send' } }), ctx)
         }
         if (record.status === 'running') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
-        return runtime.commit(() => fail(failureReason(record, `DSH request ${input.requestId} needs reconciliation (${record.status}).`), undefined, task.state.checkpoint), ctx)
+        return runtime.commit(() => fail(failureReason(record, `DSH request ${input.requestId} needs reconciliation (${record.status}${record.endReason ? `: ${record.endReason}` : ''}).`), undefined, task.state.checkpoint, record), ctx)
       }),
       send: stage(async (task, runtime, ctx) => {
         const input = inputFor(task)
         const record = await executor.inspect(input)
         if (record.reason === 'unmatched_activity') return observe(task, runtime, ctx)
         if (record.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
-        if (record.status === 'completed') return finish(task, runtime, ctx, record.result ?? '')
+        if (record.status === 'completed') return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, phase: 'check' } }), ctx)
         if (record.status === 'absent') {
           if (await pauseRequested(task)) return park(task, runtime, ctx)
           const receipt = await executor.dispatch(input)
           if (receipt?.reason === 'unmatched_activity') return observe(task, runtime, ctx)
           if (receipt?.reason === 'history_changed') return runtime.sleepUntil(runtime.now() + pollMs, task.state.checkpoint, ctx)
-          if (receipt?.status === 'completed') return finish(task, runtime, ctx, receipt.result ?? '')
+          if (receipt?.status === 'completed') return runtime.commit(() => ({ status: 'pending', checkpoint: { ...task.state.checkpoint, phase: 'check' } }), ctx)
           if (receipt?.status === 'uncertain' || receipt?.status === 'interrupted') return runtime.commit(() => fail(failureReason(receipt, `DSH request ${input.requestId} was not admitted (${receipt.status}).`), undefined, task.state.checkpoint), ctx)
         }
         else if (record.status !== 'running') return runtime.commit(() => fail(failureReason(record, `DSH request ${input.requestId} cannot be safely dispatched (${record.status}).`), undefined, task.state.checkpoint), ctx)
@@ -290,6 +318,47 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
       draft.cancelled = true
     }, context)
   }
+  const ask = async (key, { sessionId, callId, question, options = [], detail = '', multiSelect = false }) => {
+    if (!validKey(key) || !identifier(sessionId) || !identifier(callId) || typeof question !== 'string' || !question.trim() || question.length > 2000
+      || typeof detail !== 'string' || detail.length > 4000 || !Array.isArray(options) || options.length > 6
+      || options.some(option => !objectWith(option, ['label', 'description']) || typeof option.label !== 'string' || !option.label.trim() || option.label.length > 300
+        || (option.description !== undefined && (typeof option.description !== 'string' || option.description.length > 1000)))) throw new Error('Supply a bounded question and options; never request credentials in chat')
+    return root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const job = jobs.items[key]
+      const metadata = jobs.creates?.[key]
+      if (!job || !metadata?.execution?.botManaged) throw new Error('Only Bot-managed tasks can ask in their owning chat')
+      const record = await tx.task(job.taskId)
+      if (record.state.status === 'terminal' || record.abortRequested || record.input.steps[record.state.checkpoint.step].sessionId !== sessionId) throw new Error('This task stage is no longer active')
+      const requestId = inputFor(record).requestId
+      job.questions ??= []
+      const previous = job.questions.find(item => item.sessionId === sessionId && item.callId === callId)
+      if (previous) return { ...previous }
+      if (job.questions.some(item => item.requestId === requestId) || job.questions.length >= 50) throw new Error('This task stage already has a question, or its question limit was reached')
+      const id = `durable-${createHash('sha256').update(JSON.stringify([key, sessionId, callId])).digest('hex').slice(0, 40)}`
+      const saved = { id, sessionId, callId, requestId, question: question.trim(), detail, options, multiSelect: multiSelect === true, askedAt: Date.now() }
+      job.questions.push(saved)
+      return { ...saved }
+    }, context)
+  }
+  const answerQuestion = async (key, id, answer) => {
+    if (!validKey(key) || !identifier(id) || typeof answer !== 'string' || !answer.trim() || answer.length > 6000) throw new Error('Supply the question and a nonempty answer of at most 6000 characters')
+    const gate = await root.commit(async tx => {
+      const jobs = await tx.doc(Jobs)
+      const job = jobs.items[key]
+      if (!job) throw new Error('Unknown durable task')
+      const record = await tx.task(job.taskId)
+      if (record.state.status === 'terminal' || record.abortRequested) throw new Error('This task is finished or cancelling')
+      const question = job.questions?.find(item => item.id === id)
+      if (!question || question.requestId !== inputFor(record).requestId) throw new Error('This question is no longer open')
+      if (question.answer !== undefined) throw new Error('This question was already answered')
+      question.answer = answer.trim()
+      question.answeredAt = Date.now()
+      return question.gate
+    }, context)
+    if (gate !== undefined) await harness.abortTask(gate, context)
+    harness.resume()
+  }
   const setPaused = async (key, paused) => {
     if (!validKey(key)) throw new Error('Invalid durable request key')
     const gate = await root.commit(async tx => {
@@ -311,17 +380,19 @@ export async function openDurableRuntime({ database, executor, pollMs = 250, obs
   // Repair that release before scheduling, using only Pi's public task API.
   for (const job of Object.values((await harness.snapshot(Jobs, context))?.items ?? {})) {
     if (job.pauseGate !== undefined && !job.pauseRequested) await harness.abortTask(job.pauseGate, context)
+    for (const question of job.questions ?? []) if (question.gate !== undefined && question.answer !== undefined) await harness.abortTask(question.gate, context)
   }
   harness.resume()
   return {
-    submit, cancel, pause: key => setPaused(key, true), resume: key => setPaused(key, false), prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
+    submit, cancel, ask, answerQuestion, inputFor, pause: key => setPaused(key, true), resume: key => setPaused(key, false), prepareCreate, getCreate, updateCreateAllocation, beginNotification, settleNotification,
     async getNotification(key) { return (await getCreate(key))?.notification },
     async get(key) {
       const id = await taskId(key)
       if (id === undefined) return undefined
       const record = await harness.getTask(id, context)
       const job = (await harness.snapshot(Jobs, context))?.items?.[key]
-      return { ...record, ...(job?.cancellation ? { cancellation: job.cancellation } : {}), pauseRequested: job?.pauseRequested === true }
+      return { ...record, ...(job?.cancellation ? { cancellation: job.cancellation } : {}), pauseRequested: job?.pauseRequested === true,
+        questions: job?.questions ?? [], ...(record.state.status !== 'terminal' ? { question: job?.questions?.find(item => item.answer === undefined && item.requestId === inputFor(record).requestId) } : {}) }
     },
     async wait(key) { const id = await taskId(key); if (id === undefined) throw new Error('Unknown durable request'); return harness.waitForTask(id, context) },
     async list() { const jobs = await harness.snapshot(Jobs, context); return [...new Set([...Object.keys(jobs?.items ?? {}), ...Object.keys(jobs?.creates ?? {})])] },

@@ -943,7 +943,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       const result = contentText(call.content)
       const admission = call.isError ? null : durableAdmission(result)
       if (!admission) return h('div', { className: 'bt-event bt-error', title: result }, t('Could not start the task'))
-      return h(DurableChatTask, { admission, title: arg('title'), stepCount: argValue('steps')?.length, actions })
+      return h(DurableChatTask, { admission, title: arg('title'), stepCount: argValue('steps')?.length, steps: argValue('steps'), actions })
     }
     case 'message_bot': {
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }

@@ -4,11 +4,21 @@ import { output } from '../tools.js'
 export function install(rt) {
   const register = tool => rt.ctx.tools.register(defineTool({ ...tool, output }))
   register({
+    name: 'answer_durable_task',
+    description: 'Record the direct user answer to an open question from this Bot\'s durable task. Continue the same saved task, never create a replacement or do the work in this chat. Use only the actual user answer; do not infer approval from an unrelated message, silence, or a task report. This records clarification, not permission to bypass DSH approval or change scope. Read the waiting question from your context or get_durable_task. Ask which one if ambiguous.',
+    parameters: {
+      key: { type: 'string', required: true, description: 'Existing task key belonging to this Bot' },
+      question_id: { type: 'string', required: true, description: 'Exact id of the open question' },
+      answer: { type: 'string', required: true, description: 'The user\'s answer, at most 6000 characters. Never collect credentials.' },
+    },
+    async execute(args, exec) { return JSON.stringify(await rt.answerDurableFromBot(args, exec)) },
+  })
+  register({
     name: 'create_durable_task',
     description: 'Start a user-requested task in saved stages from your own chat. Use for concrete work with several steps or work that should survive an application restart. You own this task. Its dedicated execution sessions use your model, working folder, supported permissions, instructions, a saved recent-chat/memory snapshot, read-only access to your own chat/memory, and your already attached MCP/skill capabilities. They cannot manage the team, change capabilities, create recursive tasks or install the application. Give each stage all relevant facts, full file paths and user constraints. Earlier stage results are passed to later stages. Return to the user after admission; progress and the final result come back automatically. Do not poll, sleep, repeat an admitted task, or perform the same work yourself. For a saved task whose setup failed, pass only its existing key to resume its original definition. Calling this does not authorize extra actions or keep running while the computer is off.',
     parameters: {
       title: { type: 'string', description: 'Short task name, at most 120 characters. Required for a new task.' },
-      steps: { type: 'array', items: { type: 'string' }, description: '1 to 20 self-contained stages in execution order. Required for a new task. Keep the user\'s scope and permission constraints in each relevant stage.' },
+      steps: { type: 'array', items: { type: 'string' }, description: '1 to 20 self-contained stages in execution order. Begin each stage with a short, clear heading on its own line; the chat progress card shows this heading. Put relevant facts, paths and the user\'s scope and permission constraints on the following lines. Required for a new task.' },
       key: { type: 'string', description: 'Existing task key, only to resume a saved task whose setup was interrupted. Omit title and steps when resuming. Never invent a key.' },
     },
     async execute(args, exec) {
@@ -49,6 +59,7 @@ export function install(rt) {
         completed: job.state.status === 'terminal' ? job.state.outcome.status === 'completed' ? job.stepCount : job.state.outcome.error?.completed ?? job.state.outcome.result?.length ?? 0 : job.state.checkpoint?.step ?? 0,
         ...(job.pauseRequested ? { pauseRequested: true, paused: job.paused } : {}),
         ...(job.cancelling ? { cancelling: true } : {}), ...(job.cancellation ? { cancellation: job.cancellation.status } : {}),
+        ...(job.question ? { question: { id: job.question.id, question: job.question.question } } : {}),
         ...(job.state.status === 'terminal' ? { outcome: job.state.outcome.status } : {}),
       })) })
     },

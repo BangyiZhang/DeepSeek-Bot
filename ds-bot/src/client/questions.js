@@ -113,7 +113,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
   let foot = null
   if (raised && multi) {
     foot = h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: onDismiss, disabled: busy }, t('Skip')),
+      onDismiss ? h('button', { type: 'button', className: 'bt-q-btn', onClick: onDismiss, disabled: busy }, t('Skip')) : null,
       h('button', { type: 'submit', className: 'bt-q-submit', disabled: !canSubmit || busy }, t('Submit')))
   } else if ((raised || multi) && canSubmit) {
     foot = h('div', { className: 'bt-q-foot' }, h('button', { type: 'submit', className: 'bt-q-submit', disabled: busy }, t('Submit')))
@@ -129,7 +129,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
         h('p', { className: 'bt-q-title', id: titleId }, question.header ? `${question.header} · ` : '', question.question),
         question.detail ? h('div', { className: 'bt-q-detail' }, question.detail) : null,
         raised && multi ? h('div', { className: 'bt-q-detail' }, t('Choose all that apply')) : null),
-      h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Dismiss question'), title: t('Dismiss'), onClick: onDismiss, disabled: busy }, h(CloseIcon))),
+      onDismiss ? h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Dismiss question'), title: t('Dismiss'), onClick: onDismiss, disabled: busy }, h(CloseIcon)) : null),
     rows.length > 0 ? h('div', { className: 'bt-q-list', role: 'group' }, rows) : null,
     field && !raised ? h('div', { className: 'bt-q-custom' },
       h('label', { className: 'bt-q-field' }, field),
@@ -197,7 +197,7 @@ export function PendingQuestion({ sessionId, question, actions, inline }) {
     })
   }
   const onAnswer = answer => run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }))
-  const onDismiss = () => run(() => actions.dismissQuestion(sessionId))
+  const onDismiss = question.durable ? undefined : () => run(() => actions.dismissQuestion(sessionId))
   return h('div', { className: inline ? 'bt-q-inline' : 'bt-q-dock' },
     h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline }))
 }

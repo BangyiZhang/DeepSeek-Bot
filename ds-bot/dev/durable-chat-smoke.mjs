@@ -188,7 +188,7 @@ async function verifyStages(job, tag, expectedCwd, { historicalBeforeStage = 0 }
     assert.equal(inspection.inputs, 1)
     const current = await snapshot(job.sessionIds[stage])
     assert.equal(current.cwd, expectedCwd)
-    const forbidden = [...TEAM_TOOLS.filter(name => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities'].includes(name)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question']
+    const forbidden = [...TEAM_TOOLS.filter(name => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities', 'ask_user'].includes(name)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question']
     const requests = rows().filter(row => row.session === job.sessionIds[stage])
     assert.ok(requests.length > 0, 'Each phase must have actual model request evidence')
     for (const request of requests) {
@@ -225,6 +225,7 @@ try {
   writeFileSync(resolve(fixtureFolder, 'chat-facts.txt'), 'DURABLE_CHAT_FIXTURE_FACT: the named fixture contains three checked facts.\n')
   await api('update-bot', { id: main.id, model: model.ref, instructions: 'DURABLE_CHAT_OWNER_CONTEXT: work only on the named fixture and report the saved result.', workDir: fixtureFolder })
   await waitForIdle(main.id)
+  if (!process.argv.includes('--hitl-only')) {
   const initialJobs = (await api('durable-state')).jobs.length
   const beforeSimple = rows().length
   await sendChat(main.id, 'Hello from the durable smoke bench')
@@ -338,7 +339,7 @@ try {
   const admittedInspection = await rpc('inspect', { sessionId: firstWorkerId, requestId: `${admitted.key}:0` }, 'inspection')
   assert.equal(admittedInspection.inputs, 1)
   const restoredWorker = await snapshot(firstWorkerId)
-  assert.deepEqual(restoredWorker.callableToolNames.filter(name => [...TEAM_TOOLS.filter(tool => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities'].includes(tool)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question'].includes(name)), [])
+  assert.deepEqual(restoredWorker.callableToolNames.filter(name => [...TEAM_TOOLS.filter(tool => !['recall', 'read_own_chat', 'read_browser', 'list_capabilities', 'ask_user'].includes(tool)), 'create_goal', 'get_goal', 'update_goal', 'ask_user_question'].includes(name)), [])
   assert.equal(restoredWorker.callableToolNames.includes('read'), true)
   if (admissionRecovery.state.outcome.status === 'completed') await verifyStages(admissionRecovery, 'admission', fixtureFolder)
   else assert.equal(admissionRecovery.state.outcome.error.code, 'NEEDS_RECONCILIATION')
@@ -417,6 +418,46 @@ try {
   assert.equal((await rpc('inspect', { sessionId: parked.sessionIds[0], requestId: `${pausable.key}:0` }, 'inspection')).inputs, 1)
   assert.equal((await rpc('inspect', { sessionId: parked.sessionIds[1], requestId: `${pausable.key}:1` }, 'inspection')).inputs, 1)
   console.log('PASS: natural pause saves the live step, survives Host restart, and continue runs only the remaining stage with saved outputs')
+  }
+  for (const replyMode of ['card', 'chat']) {
+    await waitForIdle(main.id)
+    const count = (await api('durable-state')).jobs.length
+    await sendChat(main.id, 'Durable HITL fixture')
+    const held = await until(async () => { const jobs = (await api('durable-state')).jobs; return jobs.length > count && jobs.at(-1).state.status === 'waiting' && jobs.at(-1).question && jobs.at(-1) }, 'persisted human question')
+    const questionId = held.question.id
+    const originalTaskId = held.taskId
+    const workerId = held.sessionIds[0]
+    const asked = await until(async () => (await api('state')).questions[await chatOf(main.id)], 'question in Bot composer')
+    assert.equal(asked.id, questionId)
+    const before = await snapshot(workerId)
+    assert.equal(before.events.filter(event => event.type === 'tool/call' && event.data.name === 'read').length, 1)
+    await stop(dsh)
+    await startDsh()
+    await until(async () => (await api('state')).questions[await chatOf(main.id)]?.id === questionId, 'same question after restart')
+    if (replyMode === 'card') await api('answer-question', { sessionId: main.id, questionId, answer: { selected: ['Continue'] } })
+    else await sendChat(main.id, 'HITL answer: continue please')
+    const resumed = await finished(held.key)
+    assert.equal(resumed.taskId, originalTaskId)
+    assert.equal(resumed.state.outcome.status, 'completed', JSON.stringify(resumed.state.outcome))
+    assert.match(resumed.state.outcome.result[0], /HITL resumed in original session/)
+    const after = await snapshot(workerId)
+    assert.equal(after.events.filter(event => event.type === 'tool/call' && event.data.name === 'read').length, 1)
+    assert.equal(after.events.filter(event => event.type === 'user/message' && textOf(event.data.content).startsWith('[DS Bot durable request')).length, 2)
+    await assert.rejects(api('answer-question', { sessionId: main.id, questionId, answer: { selected: ['Continue'] } }), /no longer open/)
+    await waitForReport(main.id, held.key)
+    console.log(`PASS: ${replyMode} answer resumes the same persisted task/session after restart, without replaying its read`)
+  }
+  await waitForIdle(main.id)
+  const beforeNotice = (await api('durable-state')).jobs.length
+  await sendChat(main.id, 'Durable NOTICE fixture')
+  const noticed = await until(async () => { const jobs = (await api('durable-state')).jobs; return jobs.length > beforeNotice && jobs.at(-1) }, 'engine notice fixture')
+  const completedNotice = await finished(noticed.key)
+  assert.equal(completedNotice.state.outcome.status, 'completed')
+  const noticeHistory = await snapshot(completedNotice.sessionIds[0])
+  const sources = noticeHistory.events.filter(event => event.type === 'user/message').map(event => `${event.data.source?.kind}:${event.data.source?.form}`)
+  assert.ok(sources.includes('repeat-tool-reminder:notice'), 'The native repeated-tool reminder must actually have run')
+  assert.ok(sources.includes('tool-jobs:notice'), 'The owned job completion must actually have reached the worker')
+  console.log('PASS: real DSH repeated-tool and background-job notices no longer interrupt the durable task')
   console.log('Durable chat smoke passed')
 } finally {
   for (const child of children.toReversed()) await stop(child)

@@ -149,6 +149,13 @@ function ApprovalCard({ approval, bot, actions }) {
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
 }
 
+export function DurableApprovalDock({ sessionId, useRoster, useWork, actions }) {
+  const bot = useRoster(value => value.byId[sessionId])
+  const approvals = useWork(value => value.approvals ?? []).filter(entry => entry.durable && entry.botId === bot?.id)
+  if (!bot || !approvals.length) return null
+  return h('div', { className: 'bt-q-dock' }, approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot, actions })))
+}
+
 // A member's second line in the group's details: what it is doing and where, or its role.
 export function MemberState({ entry, bot, room, roster }) {
   if (entry?.state === 'ask') return stateLine('bt-member-state bt-mw-ask', entry.approvals[0].at, t('Waiting for your approval'))

@@ -198,6 +198,14 @@ function decide(body) {
     const resultText = typeof result.content === 'string' ? result.content : textOf(result.content)
     const call = [...messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.content) && m.content.some(b => b.type === 'tool_use'))
     const used = call?.content.find(b => b.type === 'tool_use' && b.id === result.tool_use_id) ?? call?.content.find(b => b.type === 'tool_use')
+    if (durableInput?.includes('Durable PLAN first:') && used?.name === 'read') return [text('PLAN first stage saved.')]
+    if (durableInput?.includes('Durable NOTICE stage:')) {
+      const reads = messages.filter(message => message.role === 'assistant').flatMap(message => Array.isArray(message.content) ? message.content : []).filter(block => block.type === 'tool_use' && block.name === 'read').length
+      return reads < 3 ? [tool('read', { file_path: 'chat-facts.txt' })] : [text('Durable NOTICE stage finished after engine notices.')]
+    }
+    if (durableInput?.includes('Durable HITL stage:') && used?.name === 'read') return [text('Fixture checked; waiting for your confirmation.'), tool('ask_user', {
+      question: 'Confirm HITL fixture continuation?', detail: 'Fixture already read; it will not be read again.', options: ['Continue', 'Stop'], allowCustom: true,
+    })]
     const durableChatStage = /Durable chat stage 1 ([a-zA-Z0-9-]+)/.exec((durableInput ?? '').split(/Task stage \d+ of \d+:\n/).at(-1))
     if (durableChatStage?.[1] === 'context') {
       const invoke = (name, args) => tools.has(name) ? tool(name, args) : tool('run_code', { code: `console.log(await tools[${JSON.stringify(name)}](${JSON.stringify(args)}))` })
@@ -598,6 +606,19 @@ function decide(body) {
   }
   // A fresh workspace can append its instruction snapshot to the user message.
   const durableCommand = userText.trim().split('\n')[0].trim()
+  if (durableCommand === 'Durable HITL fixture' && tools.has('create_durable_task')) return [tool('create_durable_task', {
+    title: 'Durable HITL fixture', steps: ['Durable HITL stage: read chat-facts.txt and ask before continuing.'],
+  })]
+  if (durableCommand === 'Durable PLAN fixture' && tools.has('create_durable_task')) return [tool('create_durable_task', {
+    title: 'Review project changes', steps: ['Read the project\nDurable PLAN first: inspect chat-facts.txt.', 'Confirm the changes\nDurable PLAN confirm: ask before proceeding.', 'Report the result\nDurable PLAN final: summarize the saved stage outputs.'],
+  })]
+  if (durableCommand === 'Durable NOTICE fixture' && tools.has('create_durable_task')) return [tool('create_durable_task', {
+    title: 'Durable NOTICE fixture', steps: ['Durable NOTICE stage: finish the isolated repeated-read fixture.'],
+  })]
+  if (durableCommand === 'HITL answer: continue please' && tools.has('answer_durable_task')) {
+    const pending = /Durable task ([a-zA-Z0-9_.-]+) is waiting for the user\. Question id: ([a-zA-Z0-9_.-]+)/.exec(system)
+    if (pending) return [tool('answer_durable_task', { key: pending[1], question_id: pending[2], answer: 'continue please' })]
+  }
   const durableChat = /^Durable chat fixture ([a-zA-Z0-9-]+)/i.exec(durableCommand)
   if (durableChat && tools.has('create_durable_task')) return [text('I will save this task and work through its two stages.'), tool('create_durable_task', {
     title: `Durable chat ${durableChat[1]}`,
@@ -615,6 +636,13 @@ function decide(body) {
   const durableGet = /^Durable chat get ([a-zA-Z0-9_.-]+)$/i.exec(durableCommand)
   if (durableGet && tools.has('get_durable_task')) return [tool('get_durable_task', { key: durableGet[1] })]
   if (durableRequest) {
+    if (userText.includes('Question: Proceed with planned changes?')) return [text('PLAN confirmation saved in the same stage.')]
+    if (userText.includes('Durable PLAN first:') && tools.has('read')) return [tool('read', { file_path: 'chat-facts.txt' })]
+    if (userText.includes('Durable PLAN confirm:') && tools.has('ask_user')) return [tool('ask_user', { question: 'Proceed with planned changes?', options: ['Continue', 'Stop'], allowCustom: true })]
+    if (userText.includes('Durable PLAN final:')) return [text('PLAN all stages finished.')]
+    if (userText.includes('Durable NOTICE stage:') && tools.has('bash')) return [tool('bash', { command: 'sleep 2.5', description: 'Complete an isolated background fixture', timeoutMs: 1000 })]
+    if (userText.includes('Question: Confirm HITL fixture continuation?')) return [text('HITL resumed in original session with the recorded answer; fixture not repeated.')]
+    if (userText.includes('Durable HITL stage:') && tools.has('read')) return [tool('read', { file_path: 'chat-facts.txt' })]
     const chatStage = /Durable chat stage ([12]) ([a-zA-Z0-9-]+)/.exec(userText.split(/Task stage \d+ of \d+:\n/).at(-1))
     if (chatStage?.[1] === '1' && chatStage[2] === 'context') {
       const name = 'mcp__taskcap__echo', args = { text: 'BOT_MCP_PROBE' }
