@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 import { call } from './api.js'
-import { durableTaskSummary } from './durable-tasks.js'
+import { durableTaskSummary, durableTaskView } from './durable-task-view.js'
+import { TaskCard, TaskProgress } from './task-ui.js'
 import { DurablePlan } from './durable-plan.js'
 import { DurableHistory } from './durable-history.js'
 import { hostText, t } from './i18n.js'
@@ -41,16 +42,10 @@ export function DurableChatTask({ admission, title, stepCount, steps, actions })
   const summary = durableTaskSummary(job ?? { stepCount: stepCount ?? steps?.length ?? 0, state: { status: 'preparing' } })
   const notification = job?.notification
   const reportNeedsReview = ['needs_reconciliation', 'unavailable'].includes(notification?.status)
-  const awaitingReply = summary?.kind === 'completed' && job.origin && !notification?.status?.match(/^(delivered|needs_reconciliation|unavailable)$/)
-  const kind = reportNeedsReview ? 'review' : summary?.kind ?? 'preparing'
-  const status = reportNeedsReview ? t('Needs review') : awaitingReply ? t('Waiting for Bot reply')
-    : summary.kind === 'working' && summary.completed < summary.count ? t('Running step {number} of {count}', { number: summary.completed + 1, count: summary.count }) : t(summary.label)
-  return h('section', { className: 'bt-durable-chat', 'data-kind': kind, 'aria-label': t('Durable task') },
-    h('div', { className: 'bt-durable-chat-head' },
-      h('strong', null, job?.title ?? title ?? admission.title ?? t('Untitled task')),
-      h('span', { className: 'bt-durable-chat-status', role: 'status' }, status)),
-    summary ? h('div', { className: 'bt-durable-chat-progress' },
-      h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') })) : null,
+  const view = durableTaskView({ key: admission.key, title: title ?? admission.title,
+    ...(job ?? { stepCount: stepCount ?? steps?.length ?? 0, state: { status: 'preparing' } }) })
+  return h(TaskCard, { task: view, className: 'bt-durable-chat', label: t('Durable task') },
+    h(TaskProgress, { count: summary.count, completed: summary.completed }),
     h(DurablePlan, { job, summary, steps }),
     job ? h(DurableHistory, { job, summary }) : null,
     summary?.kind === 'pausing' ? h('p', null, t('The current step will finish and save before pausing.')) : summary?.kind === 'paused' ? h('p', null, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,

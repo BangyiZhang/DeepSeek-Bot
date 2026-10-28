@@ -6,6 +6,7 @@ import { BotAvatar, RoomAvatar } from './mark.js'
 import { ClockIcon, PlusIcon, TrashIcon } from './icons.js'
 import { Segmented } from './motion.js'
 import { dateLocale, hostText, t } from './i18n.js'
+import { TaskRow as TaskViewRow, TASK_UI_CSS } from './task-ui.js'
 
 const POLL_MS = 30_000
 
@@ -85,17 +86,16 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false))
   }
   const room = task.roomId ? roster.roomsById[task.roomId] : undefined
-  return h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
-    showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
-    h('span', { className: 'bt-set-copy' },
-      h('span', { className: 'bt-task-title' }, task.title),
-      h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
-      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt' }, task.prompt) : null),
-    h('span', { className: 'bt-task-next' }, nextText(task)),
-    h('button', {
-      type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
-      'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
-    }, confirming ? t('Delete') : h(TrashIcon)))
+  return h(TaskViewRow, { task: {
+    id: `schedule:${task.sessionId}:${task.id}`, source: 'schedule', title: task.title,
+    subtitle: [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · '),
+    prompt: task.prompt && task.prompt !== task.title ? task.prompt : null,
+    meta: nextText(task), done: task.status !== 'active', busy,
+    avatar: showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
+  }, actions: h('button', {
+    type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
+    'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
+  }, confirming ? t('Delete') : h(TrashIcon)) })
 }
 
 const pad = number => String(number).padStart(2, '0')
@@ -229,13 +229,7 @@ export function ScheduleSummary({ bot, actions }) {
           h(ClockIcon), h('span', { className: 'bt-task-line-title' }, task.title), h('span', { className: 'bt-task-line-when' }, timingText(task))))))
 }
 
-export const SCHEDULE_CSS = `
-.bt-task{gap:10px}
-.bt-task[data-done]{opacity:.6}
-.bt-task[data-busy]{opacity:.4}
-.bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
-.bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.bt-task-next{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+export const SCHEDULE_CSS = TASK_UI_CSS + `
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;color:var(--bt-ink-3)}
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}

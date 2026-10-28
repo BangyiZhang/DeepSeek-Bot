@@ -4,33 +4,13 @@ import { PlusIcon, TrashIcon } from './icons.js'
 import { hostText, t } from './i18n.js'
 import { DurablePlan } from './durable-plan.js'
 import { DurableHistory } from './durable-history.js'
+import { TaskCard, TaskProgress } from './task-ui.js'
+import { durableTaskSummary, durableTaskView } from './durable-task-view.js'
+
+export { durableTaskSummary } from './durable-task-view.js'
 
 const MAX_STEPS = 20
 const MAX_PROMPT = 24000
-const resultsOf = job => job.cancellation?.results ?? (job.state?.status === 'terminal' && ['completed', 'aborted'].includes(job.state.outcome?.status)
-  ? job.state.outcome.result ?? [] : job.state?.outcome?.error?.results ?? job.state?.checkpoint?.results ?? [])
-
-export function durableTaskSummary(job) {
-  const state = job.state ?? {}
-  const results = resultsOf(job)
-  const count = job.stepCount ?? Math.max(results.length, (state.checkpoint?.step ?? 0) + 1)
-  const completed = Math.min(state.outcome?.error?.completed ?? results.length, count)
-  if (job.cancelling) return { kind: 'cancelling', label: 'Stopping task', count, completed, results }
-  if (state.outcome?.status === 'aborted' || job.cancellation?.status === 'stopped') return { kind: 'cancelled', label: 'Cancelled', count, completed, results }
-  if (job.cancellation?.status === 'needs_reconciliation') return { kind: 'review', label: 'Needs review', count, completed, results, stopUnconfirmed: true }
-  if (state.status === 'terminal') {
-    const outcome = state.outcome ?? {}
-    if (outcome.status === 'completed') return { kind: 'completed', label: 'Completed', count, completed: count, results }
-    const review = ['NEEDS_RECONCILIATION', 'CANCEL_UNCONFIRMED'].includes(outcome.error?.code)
-    return { kind: review ? 'review' : 'failed', label: review ? 'Needs review' : 'Failed', count, completed, results, error: outcome.error?.message, stopUnconfirmed: outcome.error?.code === 'CANCEL_UNCONFIRMED' }
-  }
-  if (job.paused) return { kind: 'paused', label: 'Paused', count, completed, results }
-  if (job.question) return { kind: 'waiting', label: 'Waiting for your answer', count, completed, results }
-  if (job.pauseRequested) return { kind: 'pausing', label: 'Pausing after current step', count, completed, results }
-  if (state.status === 'preparing') return { kind: 'preparing', label: 'Preparing task', count, completed: 0, results }
-  if (state.status === 'missing') return { kind: 'review', label: 'Needs review', count, completed, results }
-  return { kind: 'working', label: state.status === 'waiting' ? 'Waiting' : 'Working', count, completed, results }
-}
 
 const CSS = `
 .bt-durable{display:flex;flex-direction:column;gap:20px;min-width:0}
@@ -55,25 +35,11 @@ const CSS = `
 .bt-durable .bt-with-icon{display:inline-flex;align-items:center;gap:5px}
 .bt-durable .bt-with-icon svg{width:14px;height:14px}
 .bt-durable-list{display:flex;flex-direction:column;gap:10px}
-.bt-durable-job{padding:14px 16px;gap:10px}
-.bt-durable-job>*+*{border-top:0}
-.bt-durable-job-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.bt-durable-job-name{margin:0;font-size:14px;line-height:20px;font-weight:500;overflow-wrap:anywhere}
-.bt-durable-status{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:11px;line-height:18px;color:var(--bt-ink-2)}
-.bt-durable-status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--bt-ink-3)}
-.bt-durable-status[data-kind=completed]::before{background:var(--bt-green)}
-.bt-durable-status[data-kind=working]::before{background:var(--bt-accent)}
-.bt-durable-status[data-kind=failed]::before{background:var(--bt-danger)}
-.bt-durable-job progress{width:100%;height:4px;appearance:none;border:0;overflow:hidden;border-radius:999px;background:var(--bt-hover)}
-.bt-durable-job progress::-webkit-progress-bar{background:var(--bt-hover)}
-.bt-durable-job progress::-webkit-progress-value{background:var(--bt-accent);border-radius:999px}
-.bt-durable-job progress::-moz-progress-bar{background:var(--bt-accent);border-radius:999px}
-.bt-durable-job[data-kind=completed] progress::-webkit-progress-value{background:var(--bt-ink-3)}
 .bt-durable-session{margin-top:4px;align-self:flex-start}
 .bt-durable-review{margin:0;font-size:12px;line-height:19px;color:var(--bt-ink-2)}
 .bt-durable-list-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
 .bt-durable-list-head h3{margin:0}
-@media(max-width:680px){.bt-durable-fields{grid-template-columns:minmax(0,1fr)}.bt-durable-job-head{flex-wrap:wrap}.bt-durable-form{padding:12px}}
+@media(max-width:680px){.bt-durable-fields{grid-template-columns:minmax(0,1fr)}.bt-durable-form{padding:12px}}
 `
 
 function Job({ job, actions, refresh, readOnly }) {
@@ -87,13 +53,9 @@ function Job({ job, actions, refresh, readOnly }) {
     finally { setResuming(false) }
   }
   const openSession = sessionId => { actions.closeSettings?.(); if (job.botManaged) actions.openSession?.(job.origin.botId); else actions.openAgentSession?.(sessionId) }
-  return h('article', { className: 'bt-set-card bt-durable-job', 'data-kind': summary.kind },
-    h('div', { className: 'bt-durable-job-head' },
-      h('h4', { className: 'bt-durable-job-name' }, job.title || t('Untitled task')),
-      h('span', { className: 'bt-durable-status', 'data-kind': summary.kind }, t(summary.label))),
-    job.ownerName ? h('div', { className: 'bt-set-hint' }, t('Managed by {name}', { name: job.ownerName })) : null,
+  return h(TaskCard, { task: durableTaskView(job), className: 'bt-durable-job' },
     summary.kind === 'pausing' ? h('p', { className: 'bt-durable-review' }, t('The current step will finish and save before pausing.')) : summary.kind === 'paused' && job.origin ? h('p', { className: 'bt-durable-review' }, t('Saved progress is kept. Say “continue” in this Bot chat to resume.')) : null,
-    h('progress', { max: Math.max(summary.count, 1), value: summary.completed, 'aria-label': t('Saved progress') }),
+    h(TaskProgress, { count: summary.count, completed: summary.completed }),
     h(DurablePlan, { job, summary }),
     h(DurableHistory, { job, summary }),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,

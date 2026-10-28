@@ -465,6 +465,24 @@ async function chat(cdp) {
   await cdp.call('Emulation.clearDeviceMetricsOverride')
   await cdp.call('Emulation.setEmulatedMedia', { features: [] })
   console.log('check-packed: task questions, answers and activity survive reload, remain read-only, and render in both themes and a narrow column')
+  await evaluate("[...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes').querySelector('.bt-durable-chat-actions button').click()")
+  await until("document.querySelector('.bt-settings-item[aria-current=page]')?.textContent === 'Tasks' && !!document.querySelector('.bt-tasks-page [data-task-source=durable]')", 'the legacy task link opening unified Tasks settings')
+  const taskTabs = "[...document.querySelectorAll('.bt-tasks-page>.bt-seg button')]"
+  await evaluate(`${taskTabs}.find(node=>node.textContent === 'Scheduled tasks').click()`)
+  await until(`${taskTabs}.find(node=>node.textContent === 'Scheduled tasks')?.getAttribute('aria-pressed') === 'true' && !document.querySelector('.bt-tasks-page [data-task-source=durable]')`, 'the original scheduled-task view')
+  await evaluate(`${taskTabs}.find(node=>node.textContent === 'Saved progress').click()`)
+  await until("!!document.querySelector('.bt-tasks-page .bt-task-card [data-task-source=durable]')", 'Pi tasks using the shared Bot task card')
+  for (const theme of ['dark', 'light']) {
+    await cdp.call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] })
+    await until(`document.body.hasAttribute('data-ds-dark-theme') === ${theme === 'dark'}`, `the ${theme} unified Tasks view`)
+    await cdp.call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false })
+    const cards = await evaluate("[...document.querySelectorAll('.bt-tasks-page .bt-task-card')].map(node=>({ source:node.querySelector('[data-task-source]')?.dataset.taskSource, overflow:node.scrollWidth>node.clientWidth+1, progress:!!node.querySelector('.bt-task-progress'), color:getComputedStyle(node).backgroundColor }))")
+    if (!cards.length || cards.some(card=>card.source !== 'durable' || card.overflow || !card.progress || card.color === 'rgba(0, 0, 0, 0)')) throw new Error(`Invalid shared task cards: ${JSON.stringify(cards)}`)
+  }
+  await cdp.call('Emulation.clearDeviceMetricsOverride')
+  await cdp.call('Emulation.setEmulatedMedia', { features: [] })
+  await evaluate("document.querySelector('.bt-settings-close').click()")
+  console.log('check-packed: shared task cards, legacy links and independent task tabs work in both themes and a 390px window')
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
 }
 

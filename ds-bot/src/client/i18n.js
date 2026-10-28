@@ -5,6 +5,8 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Tasks': '任务',
+  'Task type': '任务类型',
   // Durable task experience
   'Preparing task': '正在准备任务',
   'Preparing…': '正在准备…',
