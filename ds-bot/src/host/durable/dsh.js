@@ -8,13 +8,50 @@ const marker = requestId => `[DS Bot durable request ${requestId}]`
 const textOf = content => typeof content === 'string' ? content
   : Array.isArray(content) ? content.filter(block => block?.type === 'text').map(block => block.text ?? '').join('\n') : ''
 const sourceOf = message => `${message?.source?.kind ?? 'unknown'}:${message?.source?.form ?? 'unknown'}`
-export const matchesDurableInput = (message, requestId) => textOf(message?.content).startsWith(`${marker(requestId)}\n`)
+export const matchesDurableInput = (message, requestId) => (message?.source?.kind === undefined || message.source.kind === 'user')
+  && textOf(message?.content).startsWith(`${marker(requestId)}\n`)
 export const isExecutionContext = message => contextSources.has(sourceOf(message))
 export const matchesTaskInput = (message, input) => [input.requestId, ...(input.priorRequestIds ?? [])].some(id => matchesDurableInput(message, id))
 const queued = agent => [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
 const validId = value => typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(value)
+const isChildReply = message => ['agent-message:relay', 'subagent-settled:notice'].includes(sourceOf(message))
+
+export async function executionContextFor(ctx, sessionId, messages) {
+  const children = new Set()
+  let ownershipUnavailable = false
+  if (messages.some(isChildReply)) {
+    try {
+      const service = ctx.get?.('subagents')
+      if (typeof service?.listChildren !== 'function') throw new Error('Child ownership is unavailable')
+      const catalog = await service.listChildren(sessionId, AbortSignal.timeout(15_000))
+      if (!Array.isArray(catalog)) throw new Error('Child catalog is unavailable')
+      for (const child of catalog) if (validId(child?.id) && child.id !== sessionId) children.add(child.id)
+    } catch { ownershipUnavailable = true }
+  }
+  return {
+    accepts: message => isExecutionContext(message) || (isChildReply(message) && children.has(message.source.senderSessionId)),
+    ownershipUnavailable,
+  }
+}
 
 export function createDshExecutor({ ctx, canWrite = () => true, validateSession = () => true, stopMs = 10000 }) {
+  const childWaits = new WeakMap()
+  const childWork = async agent => {
+    const service = ctx.get?.('subagents')
+    if (!service) return { pending: false }
+    if (typeof service.waitForChildren !== 'function') return { pending: false, failed: true }
+    const sequence = String(agent.session.seq)
+    let observation = childWaits.get(agent)
+    if (!observation || (!observation.pending && observation.sequence !== sequence)) {
+      observation = { sequence, pending: true, failed: false }
+      childWaits.set(agent, observation)
+      const current = observation
+      // Observe the public join without blocking Pi polling or user cancellation.
+      void Promise.resolve().then(() => service.waitForChildren(agent)).then(() => { current.pending = false }, () => { current.failed = true; current.pending = false })
+    }
+    await new Promise(resolve => setImmediate(resolve))
+    return observation
+  }
   const guard = async input => {
     if (!input || typeof input.sessionId !== 'string' || !input.sessionId || input.sessionId.length > 256 || !validId(input.requestId)) {
       throw new Error('A dedicated sessionId and valid durable requestId are required')
@@ -29,7 +66,7 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
   }
   const snapshot = agent => JSON.stringify({
     seq: String(agent.session.seq), status: agent.status,
-    inbox: queued(agent).map(message => ({ id: message.id, text: textOf(message.content), source: sourceOf(message) })),
+    inbox: queued(agent).map(message => ({ id: message.id, text: textOf(message.content), source: sourceOf(message), senderSessionId: message.source?.senderSessionId })),
   })
   const recordsOf = async sessionId => {
     const agent = await agentOf(sessionId)
@@ -59,6 +96,10 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
     const { sessionId, requestId } = input
     const { agent, records, reason } = await recordsOf(sessionId)
     if (reason) return { sessionId, requestId, status: 'uncertain', reason }
+    const cut = snapshot(agent)
+    const inbox = queued(agent)
+    const context = await executionContextFor(ctx, sessionId, [...records.filter(event => event?.type === 'user/message').map(event => event.data), ...inbox])
+    if (cut !== snapshot(agent)) return { sessionId, requestId, status: 'uncertain', reason: 'history_changed' }
     let found = false
     let currentTurn
     let turn
@@ -77,7 +118,8 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
         ended = undefined
         text = ''
       } else if (event?.type === 'user/message') {
-        if (!isExecutionContext(event.data) && !matchesTaskInput(event.data, input)) { foreignInputs += 1; foreignSources.add(sourceOf(event.data)) }
+        if (!context.accepts(event.data) && !matchesTaskInput(event.data, input)) { foreignInputs += 1; foreignSources.add(sourceOf(event.data).slice(0, 256)) }
+        else if (found && isChildReply(event.data)) { turn = currentTurn; ended = undefined }
       } else if (found && ended === undefined && event?.type === 'tool/call') {
         tools.push({ name: event.data?.name, seq: event.seq })
       } else if (found && ended === undefined && event?.type === 'assistant/message') {
@@ -87,16 +129,25 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
         ended = event.data?.reason?.kind ?? 'unknown'
       }
     }
-    const inbox = queued(agent)
     const waiting = inbox.some(message => matchesDurableInput(message, requestId))
-    const foreignQueued = inbox.some(message => !matchesTaskInput(message, input) && !isExecutionContext(message))
-    const status = inputs > 1 || foreignInputs > 0 || foreignQueued ? 'uncertain' : ended === 'completed' ? 'completed'
+    const foreignQueued = []
+    for (const [queue, messages] of [['next-step', agent.inbox?.nextStep ?? []], ['next-turn', agent.inbox?.nextTurn ?? []]]) for (const message of messages) {
+      if (matchesTaskInput(message, input) || context.accepts(message)) continue
+      const source = sourceOf(message).slice(0, 256)
+      foreignSources.add(source)
+      foreignQueued.push({ queue, source, ...(validId(message.source?.senderSessionId) ? { senderSessionId: message.source.senderSessionId } : {}) })
+    }
+    const childWaiting = inbox.some(message => isChildReply(message) && context.accepts(message))
+    const children = ended === 'completed' && !foreignInputs && !foreignQueued.length ? await childWork(agent) : { pending: false }
+    if (cut !== snapshot(agent)) return { sessionId, requestId, status: 'uncertain', reason: 'history_changed' }
+    const status = inputs > 1 || foreignInputs > 0 || foreignQueued.length || children.failed ? 'uncertain' : ended === 'completed' ? childWaiting || children.pending || agent.status === 'running' ? 'running' : agent.status === 'idle' ? 'completed' : 'uncertain'
       : ended !== undefined ? 'interrupted' : found ? (agent.status === 'running' ? 'running' : 'interrupted')
         : waiting ? 'running' : agent.status === 'idle' ? 'absent' : 'uncertain'
     return {
       sessionId, requestId, status, inputs, foreignInputs, sequence: Number(agent.session.seq),
-      activity: { tools: tools.slice(-20), foreignSources: [...foreignSources].slice(0, 20) },
-      ...(inputs > 1 ? { reason: 'duplicate_inputs' } : foreignInputs > 0 ? { reason: 'foreign_inputs' } : foreignQueued ? { reason: 'foreign_queued' } : status === 'uncertain' ? { reason: 'unmatched_activity' } : {}),
+      activity: { tools: tools.slice(-20), foreignSources: [...foreignSources].slice(0, 20), foreignQueued: foreignQueued.slice(0, 20),
+        ...(context.ownershipUnavailable ? { ownershipUnavailable: true } : {}) },
+      ...(inputs > 1 ? { reason: 'duplicate_inputs' } : foreignInputs > 0 ? { reason: 'foreign_inputs' } : foreignQueued.length ? { reason: 'foreign_queued' } : children.failed ? { reason: 'child_teardown_unconfirmed' } : status === 'uncertain' ? { reason: 'unmatched_activity' } : {}),
       ...(turn === undefined ? {} : { turn }), ...(ended === undefined ? {} : { endReason: ended }), ...(text ? { result: text.slice(-24000) } : {}),
     }
   }
@@ -143,7 +194,8 @@ export function createDshExecutor({ ctx, canWrite = () => true, validateSession 
       if (!settled || agent.status !== 'idle' || ownedJobs().length) return { status: 'uncertain', reason: 'still_stopping' }
       await ctx.sessions.flush(agent.session)
       const after = await recordsOf(input.sessionId)
-      if (after.reason || queued(agent).some(message => !contextSources.has(sourceOf(message)))) return { status: 'uncertain', reason: 'stop_not_confirmed' }
+      const context = await executionContextFor(ctx, input.sessionId, queued(agent))
+      if (after.reason || queued(agent).some(message => !context.accepts(message))) return { status: 'uncertain', reason: 'stop_not_confirmed' }
       for (const job of stoppingJobs) {
         const receipt = after.records.findLast(event => event.type === 'job/settled' && event.data?.jobId === job.id)
         if (receipt?.data?.producerReported !== true) return { status: 'uncertain', reason: 'job_stop_not_confirmed' }

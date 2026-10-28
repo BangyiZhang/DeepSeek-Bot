@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { install as installTools } from './tools.js'
 import { TEAM_TOOLS } from '../constants.js'
-import { matchesTaskInput, isExecutionContext } from './dsh.js'
+import { matchesTaskInput, executionContextFor } from './dsh.js'
 import { captureBotContext } from './context.js'
 import { taskStepTitle } from '../../shared/durable-steps.js'
 import { taskHistory } from './history.js'
@@ -532,7 +532,8 @@ export function install(rt) {
         waitingWorkers.delete(agent.id)
         const decision = await next()
         if (decision.kind !== 'enter') return decision
-        if ((decision.messages ?? []).some(message => !matchesTaskInput(message, runtime.inputFor(record)) && !isExecutionContext(message))) return { kind: 'reject' }
+        const context = await executionContextFor(ctx, agent.id, decision.messages ?? [])
+        if ((decision.messages ?? []).some(message => !matchesTaskInput(message, runtime.inputFor(record)) && !context.accepts(message))) return { kind: 'reject' }
         if (record.pauseRequested && record.state.checkpoint?.paused) return { kind: 'reject' }
         await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
         return decision

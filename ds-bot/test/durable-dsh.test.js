@@ -157,3 +157,106 @@ test('malformed calls and unknown agent states fail closed', async () => {
   f.agent.session.seq = undefined
   assert.equal((await f.executor.inspect(input)).reason, 'invalid_history_sequence')
 })
+
+const childReply = (senderSessionId = 'owned-child', kind = 'agent-message', form = kind === 'agent-message' ? 'relay' : 'notice') => ({
+  source: { kind, form, senderSessionId }, content: text('Child fixture result'),
+})
+const withChildren = f => {
+  f.ctx.get = name => name === 'subagents' ? { listChildren: async parent => {
+    assert.equal(parent, input.sessionId)
+    return [{ id: 'owned-child', mode: 'continuable', label: 'Fixture child' }]
+  }, waitForChildren: async () => false } : undefined
+  return f
+}
+
+test('a task-owned child reply in either queue is execution context, not foreign input', async () => {
+  for (const queue of ['nextStep', 'nextTurn']) for (const kind of ['agent-message', 'subagent-settled']) {
+    const f = withChildren(fixture([own()]))
+    f.agent.status = 'running'
+    f.agent.inbox[queue].push(childReply('owned-child', kind))
+    const result = await f.executor.inspect(input)
+    assert.equal(result.status, 'running')
+    assert.equal(result.foreignInputs, 0)
+    assert.equal(result.reason, undefined)
+  }
+})
+
+test('owned replies continue later parent turns without losing the original task identity', async () => {
+  const f = withChildren(fixture([
+    { type: 'turn/start', data: { turn: 1 } }, own(), answer, end('completed'),
+    { type: 'turn/start', data: { turn: 2 } }, { type: 'user/message', data: childReply() },
+    { type: 'assistant/message', data: { message: { content: text('Final parent result after the child.') } } }, end('completed'),
+  ]))
+  const result = await f.executor.inspect(input)
+  await Promise.resolve()
+  const settled = await f.executor.inspect(input)
+  assert.equal(settled.status, 'completed')
+  assert.equal(result.inputs, 1)
+  assert.equal(result.turn, 2)
+  assert.match(result.result, /Final parent result after the child/)
+  f.agent.inbox.nextTurn.push(childReply('owned-child', 'subagent-settled'))
+  assert.equal((await f.executor.inspect(input)).status, 'running', 'A queued child follow-up must be consumed before completing the task')
+})
+
+test('unowned, malformed and unverifiable child messages remain foreign with queue diagnostics', async () => {
+  for (const message of [childReply('other-task-child'), childReply(undefined, 'agent-message', 'other'), { content: text('Unrelated input') }]) {
+    const f = withChildren(fixture([own()]))
+    f.agent.inbox.nextStep.push(message)
+    const result = await f.executor.inspect(input)
+    assert.equal(result.reason, 'foreign_queued')
+    assert.ok(result.activity.foreignSources.length)
+    assert.equal(result.activity.foreignQueued[0].queue, 'next-step')
+    assert.equal(JSON.stringify(result.activity).includes('Unrelated input'), false)
+  }
+  const missing = fixture([own()])
+  missing.agent.inbox.nextTurn.push(childReply())
+  const result = await missing.executor.inspect(input)
+  assert.equal(result.reason, 'foreign_queued')
+  assert.equal(result.activity.ownershipUnavailable, true)
+})
+
+test('a child cannot impersonate the original durable input by quoting its marker', async () => {
+  const f = withChildren(fixture([own(), { type: 'user/message', data: { ...childReply(), content: own().data.content } }, answer, end('completed')]))
+  assert.equal((await f.executor.inspect(input)).inputs, 1)
+  await Promise.resolve()
+  assert.equal((await f.executor.inspect(input)).status, 'completed')
+})
+
+test('an idle parent is not completed while its public child join is still pending, and cancellation remains responsive', async () => {
+  const f = fixture([own(), answer, end('completed')])
+  let release
+  const joined = new Promise(resolve => { release = resolve })
+  f.ctx.get = name => name === 'subagents' ? { waitForChildren: () => joined, drainDescendants: async () => release(true) } : undefined
+  assert.equal((await f.executor.inspect(input)).status, 'running')
+  f.agent.cancel = () => {}
+  f.agent.whenIdle = async () => {}
+  assert.equal((await f.executor.stop(input)).status, 'stopped')
+})
+
+test('catalog changes cannot certify a stale sender snapshot and child teardown failures fail closed', async () => {
+  const changed = withChildren(fixture([own()]))
+  changed.agent.inbox.nextTurn.push(childReply())
+  changed.ctx.get = () => ({ listChildren: async () => {
+    changed.agent.inbox.nextTurn[0].source.senderSessionId = 'other-task-child'
+    return [{ id: 'owned-child' }]
+  } })
+  assert.equal((await changed.executor.inspect(input)).reason, 'history_changed')
+  const failed = fixture([own(), end('completed')])
+  failed.ctx.get = () => ({ waitForChildren: async () => { throw new Error('Fixture teardown failed') } })
+  await failed.executor.inspect(input)
+  await Promise.resolve()
+  assert.equal((await failed.executor.inspect(input)).reason, 'child_teardown_unconfirmed')
+})
+
+test('cancelling tolerates owned child settlement queued during teardown, but not another task reply', async () => {
+  for (const sender of ['owned-child', 'other-task-child']) {
+    const f = withChildren(fixture([own()]))
+    const service = f.ctx.get('subagents')
+    service.drainDescendants = async () => { f.agent.inbox.nextTurn.push(childReply(sender, 'subagent-settled')) }
+    f.ctx.get = name => name === 'subagents' ? service : undefined
+    f.agent.status = 'running'
+    f.agent.cancel = () => { f.agent.status = 'idle'; f.records.push({ event: { ...end('aborted'), seq: f.agent.session.seq++ } }) }
+    f.agent.whenIdle = async () => {}
+    assert.equal((await f.executor.stop(input)).status, sender === 'owned-child' ? 'stopped' : 'uncertain')
+  }
+})

@@ -225,7 +225,7 @@ try {
   writeFileSync(resolve(fixtureFolder, 'chat-facts.txt'), 'DURABLE_CHAT_FIXTURE_FACT: the named fixture contains three checked facts.\n')
   await api('update-bot', { id: main.id, model: model.ref, instructions: 'DURABLE_CHAT_OWNER_CONTEXT: work only on the named fixture and report the saved result.', workDir: fixtureFolder })
   await waitForIdle(main.id)
-  if (!process.argv.includes('--hitl-only')) {
+  if (!process.argv.includes('--hitl-only') && !process.argv.includes('--children-only')) {
   const initialJobs = (await api('durable-state')).jobs.length
   const beforeSimple = rows().length
   await sendChat(main.id, 'Hello from the durable smoke bench')
@@ -419,6 +419,7 @@ try {
   assert.equal((await rpc('inspect', { sessionId: parked.sessionIds[1], requestId: `${pausable.key}:1` }, 'inspection')).inputs, 1)
   console.log('PASS: natural pause saves the live step, survives Host restart, and continue runs only the remaining stage with saved outputs')
   }
+  if (!process.argv.includes('--children-only')) {
   for (const replyMode of ['card', 'chat']) {
     await waitForIdle(main.id)
     const count = (await api('durable-state')).jobs.length
@@ -458,6 +459,32 @@ try {
   assert.ok(sources.includes('repeat-tool-reminder:notice'), 'The native repeated-tool reminder must actually have run')
   assert.ok(sources.includes('tool-jobs:notice'), 'The owned job completion must actually have reached the worker')
   console.log('PASS: real DSH repeated-tool and background-job notices no longer interrupt the durable task')
+  }
+  await waitForIdle(main.id)
+  const beforeChild = (await api('durable-state')).jobs.length
+  await sendChat(main.id, 'Durable CHILD fixture')
+  const delegated = await until(async () => { const jobs = (await api('durable-state')).jobs; return jobs.length > beforeChild && jobs.at(-1) }, 'chat-created delegated durable task')
+  const delegatedDone = await finished(delegated.key)
+  assert.equal(delegatedDone.state.outcome.status, 'completed', JSON.stringify(delegatedDone.state.outcome))
+  assert.match(delegatedDone.state.outcome.result[0], /PARENT_FINAL_CHILD_FIXTURE/)
+  const delegatedHistory = await snapshot(delegatedDone.sessionIds[0])
+  const catalog = delegatedHistory.events.filter(event => event.type === 'subagent/catalog').map(event => event.data.childId)
+  assert.equal(catalog.length, 1)
+  const replies = delegatedHistory.events.filter(event => event.type === 'user/message' && ['agent-message', 'subagent-settled'].includes(event.data?.source?.kind))
+  assert.ok(replies.some(event => event.data.source.kind === 'agent-message'))
+  assert.ok(replies.some(event => event.data.source.kind === 'subagent-settled'))
+  assert.ok(replies.every(event => catalog.includes(event.data.source.senderSessionId)))
+  const request = { sessionId: delegatedDone.sessionIds[0], requestId: `${delegated.key}:0` }
+  assert.equal((await rpc('inspect', request, 'inspection')).inputs, 1)
+  await waitForReport(main.id, delegated.key)
+  await stop(dsh)
+  await startDsh()
+  const restoredChild = await rpc('inspect', request, 'inspection')
+  assert.equal(restoredChild.status, 'completed')
+  assert.equal(restoredChild.inputs, 1)
+  assert.match(restoredChild.result, /PARENT_FINAL_CHILD_FIXTURE/)
+  assert.equal((await finished(delegated.key)).taskId, delegatedDone.taskId)
+  console.log('PASS: real owned child relay and settlement finish the original durable task once and remain attributable after Host restart')
   console.log('Durable chat smoke passed')
 } finally {
   for (const child of children.toReversed()) await stop(child)

@@ -111,7 +111,7 @@ function isSummary(body) {
   return last === undefined ? undefined : summaryKind(last)
 }
 
-function decide(body) {
+function decide(body, sessionId) {
   const system = systemText(body.system) + '\n' + (body.messages ?? []).filter(m => m.role === 'system').map(m => textOf(m.content)).join('\n')
   const tools = new Set((body.tools ?? []).map(entry => entry.name))
   // Clock snapshots are context, not a new scripted user command.
@@ -137,6 +137,19 @@ function decide(body) {
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
   const isMain = system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
+  const childParent = /Durable CHILD helper for parent ([a-zA-Z0-9_.:-]+)/.exec(messages.filter(message => message.role === 'user').map(message => textOf(message.content)).join('\n'))?.[1]
+  if (childParent) {
+    const sent = messages.some(message => message.role === 'assistant' && Array.isArray(message.content) && message.content.some(block => block.type === 'tool_use' && block.name === 'send_message'))
+    return !sent && tools.has('send_message') ? [tool('send_message', { agent_id: childParent, message: 'CHILD_RELAY_FIXTURE: checked the isolated fixture.' })]
+      : [text('CHILD_FINAL_FIXTURE: isolated child work complete.')]
+  }
+  if (durableInput?.includes('Durable CHILD stage:')) {
+    const received = messages.filter(message => message.role === 'user').map(message => textOf(message.content)).join('\n')
+    if (received.includes('CHILD_FINAL_FIXTURE')) return [text('PARENT_FINAL_CHILD_FIXTURE: saved the child result in the original task.')]
+    const spawned = messages.some(message => message.role === 'assistant' && Array.isArray(message.content) && message.content.some(block => block.type === 'tool_use' && block.name === 'subagent'))
+    if (!spawned && tools.has('subagent')) return [tool('subagent', { prompt: `Durable CHILD helper for parent ${sessionId}\nCheck the isolated fixture and report back.`, description: 'Inspect the isolated durable child fixture' })]
+    return [text(received.includes('CHILD_RELAY_FIXTURE') ? 'PARENT_RECEIVED_CHILD_RELAY_FIXTURE' : 'Parent waiting for its isolated child.')]
+  }
 
   // Summary requests: the Bot's handoff prompt, or the backend's own one when the
   // plugin did not rewrite it. The note names which, and quotes the latest user lines.
@@ -615,6 +628,9 @@ function decide(body) {
   if (durableCommand === 'Durable NOTICE fixture' && tools.has('create_durable_task')) return [tool('create_durable_task', {
     title: 'Durable NOTICE fixture', steps: ['Durable NOTICE stage: finish the isolated repeated-read fixture.'],
   })]
+  if (durableCommand === 'Durable CHILD fixture' && tools.has('create_durable_task')) return [tool('create_durable_task', {
+    title: 'Durable CHILD fixture', steps: ['Durable CHILD stage: delegate the isolated fixture and incorporate the child result.'],
+  })]
   if (durableCommand === 'HITL answer: continue please' && tools.has('answer_durable_task')) {
     const pending = /Durable task ([a-zA-Z0-9_.-]+) is waiting for the user\. Question id: ([a-zA-Z0-9_.-]+)/.exec(system)
     if (pending) return [tool('answer_durable_task', { key: pending[1], question_id: pending[2], answer: 'continue please' })]
@@ -801,7 +817,7 @@ const server = createServer((req, res) => {
       return
     }
     const search = asksNativeSearch(body)
-    const out = search ? nativeSearch(body) : decide(body)
+    const out = search ? nativeSearch(body) : decide(body, req.headers['x-deepseek-harness-session-id'])
     if (out === 'overflow') {
       appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, images, overflow: true, messages: body.messages?.length ?? 0, last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS) }) + '\n')
       res.writeHead(400, { 'content-type': 'application/json' })

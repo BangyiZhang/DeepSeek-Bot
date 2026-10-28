@@ -101,7 +101,7 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
     calls.guards.delete(id)
     return agent
   }
-  const beforeStep = agent => listeners.get('agent/pre-step')({ agent, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [] }))
+  const beforeStep = (agent, messages = []) => listeners.get('agent/pre-step')({ agent, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages }))
   return { rt, ctx, calls, bots, source, peer, execute, home, complete, recreate, beforeStep, changeBundle: value => { bundle = value } }
 }
 async function until(check) {
@@ -499,4 +499,23 @@ test('task status exposes the saved stage headings without worker context or ins
   const job = await state(b, admitted.key)
   assert.deepEqual(job.steps, [{ title: 'Read the project' }, { title: 'Report findings' }])
   assert.equal(JSON.stringify(job.steps).includes('OWNER_CONTEXT'), false)
+})
+
+test('worker pre-step accepts only its cataloged child messages and settlement notices', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  await b.execute('create_durable_task', { title: 'Delegated fixture', steps: ['Inspect with a child'] })
+  await until(() => b.calls.prompts.length === 1)
+  const worker = (await b.ctx.sessionController.resolveAgent('worker-1')).agent
+  const get = b.ctx.get
+  b.ctx.get = name => name === 'subagents' ? { listChildren: async parent => {
+    assert.equal(parent, worker.id)
+    return [{ id: 'owned-child', mode: 'continuable', label: 'Fixture child' }]
+  } } : get(name)
+  for (const [kind, form] of [['agent-message', 'relay'], ['subagent-settled', 'notice']]) {
+    const message = { source: { kind, form, senderSessionId: 'owned-child' }, content: [{ type: 'text', text: 'Child result' }] }
+    assert.equal((await b.beforeStep(worker, [message])).kind, 'enter')
+    assert.equal((await b.beforeStep(worker, [{ ...message, source: { ...message.source, senderSessionId: 'other-task-child' } }])).kind, 'reject')
+  }
+  b.ctx.get = get
+  assert.equal((await b.beforeStep(worker, [{ source: { kind: 'agent-message', form: 'relay', senderSessionId: 'owned-child' } }])).kind, 'reject')
 })

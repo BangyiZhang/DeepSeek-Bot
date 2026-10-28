@@ -1,0 +1,13 @@
+# Owned child messages in durable execution
+
+The durable executor previously recognized only the task input and a fixed set of engine contexts. Valid child relays waiting in the parent inbox therefore became `foreign_queued`; the worker pre-step hook independently rejected the same messages. Runtime child-settlement notices had the same problem. Queue sources were absent from diagnostics, which only collected committed user-message sources.
+
+Use the documented `ctx.subagents.listChildren(parentSessionId)` catalog as proof of direct ownership. Accept only exact `agent-message:relay` and `subagent-settled:notice` sources whose sender is in this dedicated task-stage session's durable catalog. Do not trust message text, the sender's own claimed parent, another task's catalog or the fact that an Agent exists. Missing or failed catalog reads fail closed. The public catalog excludes fork-inherited membership and works without resuming children after restart. DSH remains unmodified.
+
+Inspection, pre-step admission and cancellation share this rule. Cancellation still refuses a surviving task request or foreign work, while allowing owned settlement notices produced during child teardown. Queue diagnostics include bounded source, queue and sender identity, never message text. The inspection snapshot includes sender attribution and is checked again after the asynchronous catalog read.
+
+Owned child follow-up turns belong to the admitted durable request: track their parent output without incrementing the request count. A queued reply, running parent, or pending public `waitForChildren(parent)` join prevents premature completion. Observe the join asynchronously without holding Pi's phase or blocking cancellation, recheck the parent snapshot, and fail closed if teardown cannot be confirmed. An idle parent alone is not proof that child work has finished. Child text containing a durable marker cannot become a new task admission.
+
+Acceptance covers both inbox queues, history, follow-up turns, malformed and foreign senders, unavailable ownership, cancellation races, pre-step admission, and an isolated real DSH/Pi workflow in which a child sends a relay and settles. Reopen the Host and verify the persisted catalog still attributes the same task without redispatch. Tests use mock models and disposable data; reading user incident metadata is separate from tests and never writes to user profiles. No packaging or publishing is part of this fix.
+
+Public contracts: [Subagents](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/subagent.md), [Control tools](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/tool-subagent-control/README.md).
