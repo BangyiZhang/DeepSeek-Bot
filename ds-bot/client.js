@@ -10516,9 +10516,13 @@ function TeamSidebar(props) {
     actions.openPalette(event.key);
   };
   const onToggle = () => {
-    actions.setLeftDrawer?.(false);
-    if (mode === "hidden") actions.toggleLeftHidden?.();
-    else actions.setSidebarPref?.(mode === "rail" ? "open" : "rail");
+    if (mode === "hidden") {
+      actions.toggleLeftHidden?.();
+      return;
+    }
+    const opening = mode === "rail";
+    actions.setSidebarPref?.(opening ? "open" : "rail");
+    actions.setLeftDrawer?.(opening && frameSnap.viewport < frameSnap.sidebarWidth + MIN_CHAT);
   };
   const toggleRef = (0, import_react23.useRef)(onToggle);
   toggleRef.current = onToggle;

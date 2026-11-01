@@ -375,6 +375,38 @@ test('the column\'s top row folds to the rail and expands again, while its edge 
   assert.equal(toggle.props.hidden, true)
 })
 
+test('the rail expand button opens a drawer when the conversation needs its minimum width', () => {
+  viewport.innerWidth = 650
+  let pref = 'rail', drawer = false
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const find = node => {
+    if (Array.isArray(node)) return node.map(find).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    return node.type === 'button' && node.props.className === 'bt-round bt-side-collapse' ? node : find(node.props?.children)
+  }
+  let tree
+  const render = () => { tree = TeamSidebar({
+    useRoster: pick => pick(roster), useUi: pick => pick({ unread: {}, leftDrawer: drawer }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    useFrame: pick => pick({ viewport: viewport.innerWidth, sidebarWidth: 280, collapsedWidth: 0 }),
+    useSidebarPref: pick => pick(pref),
+    actions: { setSidebarPref: value => { pref = value }, setLeftDrawer: value => { drawer = value } },
+  }) }
+  render()
+  find(tree).props.onClick(); render()
+  assert.equal(pref, 'open')
+  assert.equal(drawer, true)
+  assert.equal(tree.props.children[1].props.mode, 'drawer')
+  find(tree).props.onClick(); render()
+  assert.equal(pref, 'rail')
+  assert.equal(drawer, false)
+  viewport.innerWidth = 1280
+  render()
+  find(tree).props.onClick(); render()
+  assert.equal(pref, 'open')
+  assert.equal(drawer, false)
+})
+
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
   const { document } = shell({ platform: 'windows', collapsed: false })
   const row = document.querySelector('.x_logoRow')

@@ -252,13 +252,39 @@ async function checkMessageSpacing(evaluate) {
   console.log('check-packed: balanced message spacing passed (12px between speakers, 4px within a reply)')
 }
 
+async function checkSelectionReply(cdp, evaluate, until) {
+  const selected = await evaluate(`(() => {
+    const bubble = document.querySelector('.bt-bubble')
+    const walk = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT)
+    let node
+    while (node = walk.nextNode()) {
+      if (node.textContent.trim().length < 12 || node.parentElement.closest('button')) continue
+      const range = document.createRange()
+      range.setStart(node, 2); range.setEnd(node, 10)
+      const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      return selection.toString()
+    }
+    throw new Error('No selectable fixture text')
+  })()`)
+  await until("!!document.querySelector('.bt-selection-reply:not([data-leaving]) button')", 'the selected-text reply action')
+  await evaluate("document.querySelector('.bt-selection-reply button').click()")
+  const editor = "document.querySelector('[role=textbox][contenteditable=true]')"
+  await until(`${editor}.innerText.includes(${JSON.stringify(`> ${selected}`)})`, 'only the selected text reaching the quote composer')
+  if ((await evaluate(`${editor}.innerText`)).trim() !== `> ${selected}`.trim()) throw new Error('The selection reply included unselected message text')
+  const modifiers = process.platform === 'darwin' ? 4 : 2
+  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'a', code: 'KeyA', modifiers, windowsVirtualKeyCode: 65 })
+  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
+  await until(`${editor}.innerText.trim() === ''`, 'the quote draft clearing without being sent')
+  console.log('check-packed: selected-text reply and composer insertion passed')
+}
+
 async function checkHeaderPill(cdp, evaluate, until) {
   const originalDark = await evaluate("matchMedia('(prefers-color-scheme: dark)').matches")
-  const collapsed = "document.querySelector('.bt-pill').closest('[class*=\"_frame\"]').hasAttribute('data-sidebar-collapsed')"
+  const collapsed = "document.querySelector('.bt-leftcol')?.dataset.left === 'rail'"
   const toggle = async () => {
     await evaluate(`(() => {
-      const frame = document.querySelector('.bt-pill').closest('[class*="_frame"]')
-      const button = frame.querySelector('.bt-side-collapse') ?? frame.querySelector('[data-slot="sidebar"] button[class*="_toggle"]')
+      const button = document.querySelector('.bt-side-collapse,.bt-title-toggle')
       if (!button) throw new Error('missing left sidebar toggle')
       button.click()
     })()`)
@@ -346,7 +372,7 @@ async function checkHeaderPill(cdp, evaluate, until) {
     // Left navigation layout must not change the details cue or hide the avatar.
     await toggle()
     await until(`!(${collapsed})`, 'the expanded sidebar')
-    await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1000, height: 900, deviceScaleFactor: 1, mobile: false })
+    await cdp.call('Emulation.setDeviceMetricsOverride', { width: 650, height: 900, deviceScaleFactor: 1, mobile: false })
     await until(collapsed, 'responsive sidebar collapse')
     await measure(true, false)
     await toggle()
@@ -457,6 +483,7 @@ async function chat(cdp) {
     throw new Error(`the selected Chief tile must use only a background highlight: ${JSON.stringify(selection)}`)
   }
   await checkMessageSpacing(evaluate)
+  await checkSelectionReply(cdp, evaluate, until)
   await checkHeaderPill(cdp, evaluate, until)
   await checkBotBrowser(evaluate, until, main)
   const api = (endpoint, payload = {}) => evaluate(`fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(${JSON.stringify({ endpoint, payload })}) }).then(r => r.json()).then(r => { if (!r.ok) throw new Error(r.error?.message); return r.value })`)

@@ -12,7 +12,7 @@ import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js
 import { hostText, t } from './i18n.js'
 import { clientErrors } from './diagnostics.js'
 import { showsDshRow } from './dsh-offer.js'
-import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
+import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, MIN_CHAT, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 
 // -------------------------------------------------------------------------
@@ -537,13 +537,14 @@ export function TeamSidebar(props) {
     event.preventDefault()
     actions.openPalette(event.key)
   }
-  // The switch (top-left button, the shortcut) hides the whole column or brings
-  // back the one it hid.
+  // Keep the chat's minimum width: opening from a narrow rail uses a drawer.
   const onToggle = () => {
-    actions.setLeftDrawer?.(false)
-    if (mode === 'hidden') actions.toggleLeftHidden?.()
-    else actions.setSidebarPref?.(mode === 'rail' ? 'open' : 'rail')
+    if (mode === 'hidden') { actions.toggleLeftHidden?.(); return }
+    const opening = mode === 'rail'
+    actions.setSidebarPref?.(opening ? 'open' : 'rail')
+    actions.setLeftDrawer?.(opening && frameSnap.viewport < frameSnap.sidebarWidth + MIN_CHAT)
   }
+
   // The shell's sidebar shortcut is caught on its way down, before the shell's
   // own listener on window sees it: left to the shell, it would expand the shell's
   // sidebar first and our sync would pull it back, a visible flash.
