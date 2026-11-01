@@ -25,7 +25,7 @@ async function fingerprint() {
     }
   }
   for (const path of ['ds-bot/src', 'app/src', 'app/assets', 'app/ui/src']) await collect(path)
-  for (const path of ['ds-bot/index.js', 'ds-bot/client.js', 'ds-bot/package.json', 'ds-bot/cordis.patch.yml', 'ds-bot/web-search.js', 'app/package.json', 'app/electron-builder.yml']) {
+  for (const path of ['ds-bot/index.js', 'ds-bot/client.js', 'ds-bot/office.js', 'ds-bot/package.json', 'ds-bot/cordis.patch.yml', 'ds-bot/web-search.js', 'app/package.json', 'app/electron-builder.yml', 'app/scripts/prepare-runtime.mjs', 'app/scripts/primary-runtime.lock.json']) {
     hash.update(path); hash.update(await readFile(join(root, path)))
   }
   return hash.digest('hex')
@@ -47,10 +47,10 @@ const npm = (name, project, args) => process.env.npm_execpath
   ? run(name, process.execPath, [process.env.npm_execpath, '--prefix', project, ...args])
   : run(name, 'npm', ['--prefix', project, ...args])
 await npm('plugin-build', 'ds-bot', ['run', 'build'])
-for (const file of ['package.json', 'index.js', 'client.js', 'web-search.js', 'cordis.patch.yml', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'index.js', 'client.js', 'office.js', 'web-search.js', 'cordis.patch.yml', 'README.md', 'LICENSE']) {
   await cp(join(root, 'ds-bot', file), join(root, 'app', 'node_modules', 'ds-bot', file))
 }
-for (const path of ['src/host', 'src/shared']) await cp(join(root, 'ds-bot', path), join(root, 'app', 'node_modules', 'ds-bot', path), { recursive: true })
+for (const path of ['src/host', 'src/shared', 'src/office']) await cp(join(root, 'ds-bot', path), join(root, 'app', 'node_modules', 'ds-bot', path), { recursive: true })
 const sourceHash = await fingerprint()
 await npm('plugin-test', 'ds-bot', ['test'])
 await npm('plugin-lint', 'ds-bot', ['run', 'lint'])
@@ -73,8 +73,8 @@ async function compare(folder, packedPrefix) {
   }
 }
 await compare(join(root, 'app/src'), 'src')
-for (const path of ['src/host', 'src/shared']) await compare(join(root, 'ds-bot', path), `node_modules/ds-bot/${path}`)
-for (const file of ['index.js', 'client.js', 'web-search.js', 'cordis.patch.yml']) {
+for (const path of ['src/host', 'src/shared', 'src/office']) await compare(join(root, 'ds-bot', path), `node_modules/ds-bot/${path}`)
+for (const file of ['index.js', 'client.js', 'office.js', 'web-search.js', 'cordis.patch.yml']) {
   if (!asar.extractFile(archive, `node_modules/ds-bot/${file}`).equals(await readFile(join(root, 'ds-bot', file)))) throw new Error(`Packaged plugin mismatch: ${file}`)
 }
 checks.push({ name: 'signature', passed: true })
