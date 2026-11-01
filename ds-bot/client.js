@@ -42,6 +42,8 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Quote selection": "引用回复",
+  "Selected text actions": "选中文字操作",
   "Connect plugins": "连接插件",
   "Tasks": "任务",
   "Task type": "任务类型",
@@ -1588,8 +1590,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h56, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h56 / 2}" width="${w}" height="${h56}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h56, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h56 * 0.14}Q0 ${-h56 * 0.42} ${w * 0.62} ${h56 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h57, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h57 / 2}" width="${w}" height="${h57}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h57, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h57 * 0.14}Q0 ${-h57 * 0.42} ${w * 0.62} ${h57 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -1769,7 +1771,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     closePanel: () => {
       ui2.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
     },
-    quote: (sessionId, text) => ui2.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    quote: (sessionId, text, options = {}) => ui2.set((state) => ({ ...state, quote: { sessionId, text, selection: options.selection === true, token: Date.now() } })),
     clearQuote: (token) => ui2.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
     deleteRoom: (id) => after(call2("delete-room", { id })),
@@ -2681,14 +2683,14 @@ var viewBottom = () => window.visualViewport ? window.visualViewport.height + wi
 function useViewport() {
   const [tick, setTick] = (0, import_react4.useState)(0);
   (0, import_react4.useEffect)(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return void 0;
+    const viewport2 = window.visualViewport;
+    if (!viewport2) return void 0;
     const bump = () => setTick((value) => value + 1);
-    viewport.addEventListener("resize", bump);
-    viewport.addEventListener("scroll", bump);
+    viewport2.addEventListener("resize", bump);
+    viewport2.addEventListener("scroll", bump);
     return () => {
-      viewport.removeEventListener("resize", bump);
-      viewport.removeEventListener("scroll", bump);
+      viewport2.removeEventListener("resize", bump);
+      viewport2.removeEventListener("scroll", bump);
     };
   }, []);
   return tick;
@@ -2724,12 +2726,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h56 = dt / steps;
+    const h57 = dt / steps;
     let moving = false;
     for (const value of values.values()) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h56;
-        value.x += value.v * h56;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h57;
+        value.x += value.v * h57;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -3585,6 +3587,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-menu .bt-danger{color:var(--bt-danger)}
 .bt-menu-sep{height:.5px;flex:none;background:var(--bt-line-2);margin:4px 8px}
 .bt-menu-up{--bt-origin:bottom left;animation-name:bt-pop-lift,bt-veil-in}
+.bt-selection-reply{min-width:0;max-width:calc(100vw - 16px);z-index:65}
+.bt-selection-reply button{white-space:nowrap}
 .bt-menu[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
 .bt-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-menu-hint{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
@@ -8351,6 +8355,31 @@ function DurableChatTask({ admission, title, stepCount, steps, actions }) {
   );
 }
 
+// src/client/quote.js
+var MESSAGE = "[data-bt-quote-session]";
+var CONTROL = "button,input,textarea,select,[contenteditable=true],[aria-hidden=true]";
+var elementOf = (node) => node?.nodeType === 1 ? node : node?.parentElement;
+function selectedQuote(selection, sessionId) {
+  if (!sessionId || !selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
+  const range = selection.getRangeAt(0);
+  const start = elementOf(range.startContainer);
+  const end = elementOf(range.endContainer);
+  const root = start?.closest(MESSAGE);
+  if (!root?.isConnected || root.dataset.btQuoteSession !== sessionId || end?.closest(MESSAGE) !== root || start.closest(CONTROL) || end.closest(CONTROL)) return null;
+  const text = selection.toString();
+  if (!text.trim()) return null;
+  return { sessionId, text, root, range: range.cloneRange() };
+}
+function quoteText({ text, selection }) {
+  if (selection) return `${text.replace(/\r\n?/g, "\n").split("\n").map((line) => `> ${line}`).join("\n")}
+
+`;
+  const excerpt = text.replace(/\s+/g, " ").trim();
+  return `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}
+
+`;
+}
+
 // src/client/cells.js
 var import_react21 = require("react");
 var import_react_dom = require("react-dom");
@@ -8414,6 +8443,7 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
   const key = msgKey ? `${msgKey}:${index}` : void 0;
   const body = shown === "" ? null : (0, import_react21.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels3(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react21.useRef)(null);
+  const quoteRoot = (0, import_react21.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react21.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
   const tapTools = (event) => {
@@ -8430,11 +8460,11 @@ function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, menti
       lead,
       (0, import_react21.createElement)(
         "div",
-        { className: "bt-bubble", "data-folded": folded || void 0 },
+        { ref: quoteRoot, className: "bt-bubble", "data-bt-quote-session": sessionId, "data-folded": folded || void 0 },
         control ? (0, import_react21.createElement)("div", { className: "bt-fold-body" }, area) : area,
         control
       ),
-      live ? null : (0, import_react21.createElement)(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions, open: toolsOpen })
+      live ? null : (0, import_react21.createElement)(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t("Bot"), sessionId, react: key ? (emoji) => actions.toggleReaction(msgKey, index, emoji) : void 0, actions, quoteRoot, open: toolsOpen })
     ),
     picked.length ? (0, import_react21.createElement)("div", { className: "bt-reacts" }, picked.map((emoji) => (0, import_react21.createElement)("button", {
       key: emoji,
@@ -8470,7 +8500,7 @@ function useDismiss(open, close, refs) {
     };
   }, [open]);
 }
-function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
+function MessageTools({ text, name, sessionId, react, actions, quoteRoot, open: tapped }) {
   const [panel, setPanel] = (0, import_react21.useState)(null);
   const [copied, setCopied] = (0, import_react21.useState)(false);
   const tools = (0, import_react21.useRef)(null);
@@ -8511,7 +8541,11 @@ function MessageTools({ text, name, sessionId, react, actions, open: tapped }) {
     "div",
     { ref: tools, className: "bt-tools", "data-open": panel !== null || tapped || void 0 },
     react ? (0, import_react21.createElement)("button", { type: "button", className: "bt-tool", "aria-label": t("Add reaction"), title: t("Add reaction"), "aria-expanded": panel?.kind === "react", onClick: (event) => open("react", event) }, (0, import_react21.createElement)(SmileIcon)) : null,
-    sessionId ? (0, import_react21.createElement)("button", { type: "button", className: "bt-tool", "aria-label": t("Reply"), title: t("Reply"), onClick: () => actions.quote(sessionId, text) }, (0, import_react21.createElement)(ReplyIcon)) : null,
+    sessionId ? (0, import_react21.createElement)("button", { type: "button", className: "bt-tool", "aria-label": t("Reply"), title: t("Reply"), onMouseDown: (event) => event.preventDefault(), onClick: () => {
+      const selected = selectedQuote(window.getSelection(), sessionId);
+      if (selected?.root === quoteRoot?.current) actions.quote(sessionId, selected.text, { selection: true });
+      else actions.quote(sessionId, text);
+    } }, (0, import_react21.createElement)(ReplyIcon)) : null,
     (0, import_react21.createElement)("button", { type: "button", className: "bt-tool", "aria-label": t("More message actions"), title: t("More"), "aria-haspopup": "menu", "aria-expanded": panel?.kind === "more", onClick: (event) => open("more", event) }, copied ? (0, import_react21.createElement)(CheckIcon) : (0, import_react21.createElement)(DotsIcon)),
     panel?.kind === "react" ? (0, import_react_dom.createPortal)((0, import_react21.createElement)(
       "div",
@@ -9790,28 +9824,28 @@ var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
 var RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2;
-function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
-  const fits = pref === "open" && viewport >= sidebarWidth + MIN_CHAT;
+function frameLayout({ viewport: viewport2, sidebarWidth, pref, drawer = false, panel = null }) {
+  const fits = pref === "open" && viewport2 >= sidebarWidth + MIN_CHAT;
   let left = pref === "hidden" ? "hidden" : fits ? "open" : drawer && pref === "open" ? "drawer" : "rail";
   let occupied = left === "open" ? sidebarWidth : left === "hidden" ? 0 : RAIL_WIDTH;
   let panelState = "none";
   if (panel !== null) {
     const need = (PANEL_MIN[panel.view] ?? PANEL_MIN.details) + MIN_CHAT;
-    if (occupied + need <= viewport) panelState = "shown";
+    if (occupied + need <= viewport2) panelState = "shown";
     else if (panel.yielded === true) {
       if (left !== "hidden") {
         left = "rail";
         occupied = RAIL_WIDTH;
       }
-      panelState = occupied + need <= viewport ? "shown" : "overlay";
+      panelState = occupied + need <= viewport2 ? "shown" : "overlay";
     } else panelState = "folded";
   }
-  return { left, panel: panelState, room: Math.max(0, viewport - occupied) };
+  return { left, panel: panelState, room: Math.max(0, viewport2 - occupied) };
 }
-function dragColumn(x, viewport) {
+function dragColumn(x, viewport2) {
   if (x < RAIL_SNAP) return { left: "rail", width: RAIL_WIDTH };
-  const docks = viewport >= SIDEBAR_MIN + MIN_CHAT;
-  const high = docks ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewport - MIN_CHAT)) : SIDEBAR_MAX;
+  const docks = viewport2 >= SIDEBAR_MIN + MIN_CHAT;
+  const high = docks ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewport2 - MIN_CHAT)) : SIDEBAR_MAX;
   return { left: docks ? "open" : "drawer", width: Math.round(Math.max(SIDEBAR_MIN, Math.min(x, high))) };
 }
 var toggledPref = (pref, shown) => pref === "hidden" ? shown : "hidden";
@@ -10419,11 +10453,11 @@ function TeamSidebar(props) {
     if (typeof document === "undefined" || typeof actions.toggleSidebar !== "function") return void 0;
     const collapsed = dshCollapsed() ?? !wide;
     const prev = dsh.current;
-    const viewport = window.innerWidth;
-    dsh.current = { collapsed, viewport };
+    const viewport2 = window.innerWidth;
+    dsh.current = { collapsed, viewport: viewport2 };
     if (prev !== null && collapsed !== prev.collapsed) {
       if (requested.current) requested.current = false;
-      else if (!collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
+      else if (!collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport: viewport2 }, sinceResize: performance.now() - resizedAt.current })) {
         toggleRef.current();
       }
     }
@@ -11304,11 +11338,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
   (0, import_react25.useEffect)(() => {
     if (!quote || !inputActions) return;
     actions.clearQuote(quote.token);
-    const excerpt = quote.text.replace(/\s+/g, " ").trim();
-    const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}
-
-`;
-    inputActions.insertText(line, inputActions.captureInsertion());
+    inputActions.insertText(quoteText(quote), inputActions.captureInsertion());
     const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]');
     if (box instanceof HTMLElement) {
       box.focus();
@@ -20148,9 +20178,133 @@ var BROWSER_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name{animation:none}}
 `;
 
-// src/client/overlays.js
+// src/client/selection-reply.js
 var import_react57 = require("react");
 var import_react_dom9 = require("react-dom");
+var viewport = () => ({
+  left: window.visualViewport?.offsetLeft ?? 0,
+  top: window.visualViewport?.offsetTop ?? 0,
+  right: (window.visualViewport?.offsetLeft ?? 0) + (window.visualViewport?.width ?? window.innerWidth),
+  bottom: viewBottom()
+});
+var sameRange = (a, b) => a?.root === b?.root && a?.text === b?.text && a?.range.startContainer === b?.range.startContainer && a?.range.startOffset === b?.range.startOffset && a?.range.endContainer === b?.range.endContainer && a?.range.endOffset === b?.range.endOffset;
+function quoteAnchor(quote, selection, bounds) {
+  const scroll = quote.root.closest("[data-conversation-scroll]")?.getBoundingClientRect();
+  const top = Math.max(bounds.top, scroll?.top ?? bounds.top);
+  const bottom = Math.min(bounds.bottom, scroll?.bottom ?? bounds.bottom);
+  const rects = [...quote.range.getClientRects()].filter((rect2) => rect2.width > 0 && rect2.height > 0 && rect2.bottom > top && rect2.top < bottom && rect2.right > bounds.left && rect2.left < bounds.right);
+  if (!rects.length) return null;
+  const backward = selection.focusNode === quote.range.startContainer && selection.focusOffset === quote.range.startOffset;
+  const rect = backward ? rects[0] : rects.at(-1);
+  return { left: Math.max(bounds.left, rect.left), right: Math.min(bounds.right, rect.right), top: Math.max(top, rect.top), bottom: Math.min(bottom, rect.bottom) };
+}
+function quotePosition(rect, size, bounds) {
+  const gap = 8;
+  const high = Math.max(bounds.left + gap, bounds.right - size.width - gap);
+  const above = rect.top - size.height - gap;
+  return {
+    left: Math.max(bounds.left + gap, Math.min((rect.left + rect.right - size.width) / 2, high)),
+    top: Math.max(bounds.top + gap, Math.min(above >= bounds.top + gap ? above : rect.bottom + gap, bounds.bottom - size.height - gap))
+  };
+}
+function SelectionReply({ sessionId, disabled, actions }) {
+  const [quote, setQuote] = (0, import_react57.useState)(null);
+  const [shown, leaving] = useLinger(quote, 120);
+  const pop = (0, import_react57.useRef)(null);
+  const [place, setPlace] = (0, import_react57.useState)({ left: -1e4, top: 0 });
+  (0, import_react57.useEffect)(() => {
+    setQuote(null);
+    if (!sessionId || disabled) return void 0;
+    let frame = 0;
+    let dragging = false;
+    let dismissed = null;
+    const refresh = () => {
+      frame = 0;
+      if (dragging) return;
+      if (document.querySelector("[aria-modal=true]")) {
+        setQuote(null);
+        return;
+      }
+      const selection = window.getSelection();
+      const next = selectedQuote(selection, sessionId);
+      if (!next && pop.current?.contains(document.activeElement)) return;
+      if (dismissed && !sameRange(next, dismissed)) dismissed = null;
+      const rect = next && !sameRange(next, dismissed) ? quoteAnchor(next, selection, viewport()) : null;
+      setQuote(rect ? { ...next, rect } : null);
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(refresh);
+    };
+    const down = (event) => {
+      if (pop.current?.contains(event.target)) return;
+      dragging = true;
+      dismissed = null;
+      setQuote(null);
+    };
+    const up = () => {
+      dragging = false;
+      schedule();
+    };
+    const blur = () => {
+      cancelAnimationFrame(frame);
+      dragging = false;
+      setQuote(null);
+    };
+    const key = (event) => {
+      if (event.key !== "Escape") {
+        schedule();
+        return;
+      }
+      dismissed = selectedQuote(window.getSelection(), sessionId);
+      setQuote(null);
+    };
+    document.addEventListener("selectionchange", schedule);
+    document.addEventListener("pointerdown", down);
+    document.addEventListener("pointerup", up);
+    document.addEventListener("pointercancel", up);
+    document.addEventListener("keyup", key);
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("blur", blur);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("selectionchange", schedule);
+      document.removeEventListener("pointerdown", down);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
+      document.removeEventListener("keyup", key);
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("blur", blur);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+    };
+  }, [sessionId, disabled]);
+  (0, import_react57.useLayoutEffect)(() => {
+    if (!shown || !pop.current) return;
+    const next = quotePosition(shown.rect, { width: pop.current.offsetWidth, height: pop.current.offsetHeight }, viewport());
+    setPlace((previous) => previous.left === next.left && previous.top === next.top ? previous : next);
+  }, [shown]);
+  if (!shown || disabled || shown.sessionId !== sessionId) return null;
+  const reply = () => {
+    if (leaving || !shown.root.isConnected) return;
+    setQuote(null);
+    window.getSelection()?.removeAllRanges();
+    actions.quote(shown.sessionId, shown.text, { selection: true });
+  };
+  return (0, import_react_dom9.createPortal)((0, import_react57.createElement)(
+    "div",
+    { ref: pop, className: "bt-menu bt-selection-reply", role: "toolbar", "aria-label": t("Selected text actions"), "data-leaving": leaving || void 0, style: place },
+    (0, import_react57.createElement)("button", { type: "button", disabled: leaving, onPointerDown: (event) => event.preventDefault(), onMouseDown: (event) => event.preventDefault(), onClick: reply }, (0, import_react57.createElement)(ReplyIcon), t("Quote selection"))
+  ), document.body);
+}
+
+// src/client/overlays.js
+var import_react58 = require("react");
+var import_react_dom10 = require("react-dom");
 var DIALOG_EXIT_MS = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, actions }) {
@@ -20160,8 +20314,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const frameSnap = useFrame ? useFrame((value) => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = useSidebarPref ? useSidebarPref((value) => value) : "open";
   const current = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
-  const previous = (0, import_react57.useRef)(current);
-  (0, import_react57.useEffect)(() => {
+  const previous = (0, import_react58.useRef)(current);
+  (0, import_react58.useEffect)(() => {
     if (previous.current === current) return;
     previous.current = current;
     if (current) actions.followPanel?.(current);
@@ -20175,8 +20329,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     panel: open ? { view: open.view, yielded: ui2.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
-  const [kept, setKept] = (0, import_react57.useState)(shown);
-  (0, import_react57.useEffect)(() => {
+  const [kept, setKept] = (0, import_react58.useState)(shown);
+  (0, import_react58.useEffect)(() => {
     if (shown) {
       setKept(shown);
       return void 0;
@@ -20195,17 +20349,18 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const [memory, memoryLeaving] = useLinger(ui2.memory && memoryOwner(ui2.memory) ? ui2.memory : null, DIALOG_EXIT_MS);
   const owner = memory ? memoryOwner(memory) : null;
   const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
-  return (0, import_react57.createElement)(
-    import_react57.Fragment,
+  return (0, import_react58.createElement)(
+    import_react58.Fragment,
     null,
-    pane ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(NewChat, { key: ui2.newChat, mode: ui2.newChat, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
-    settings ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    owner ? (0, import_react_dom9.createPortal)((0, import_react57.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
+    (0, import_react58.createElement)(SelectionReply, { sessionId: current, actions, disabled: Boolean(ui2.newChat || ui2.palette || ui2.exchange || ui2.voice || menu || settings || owner) }),
+    pane ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(NewChat, { key: ui2.newChat, mode: ui2.newChat, roster, actions }), document.body) : null,
+    ui2.palette ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    menu ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
+    settings ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    owner ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
   );
 }
 
@@ -21263,13 +21418,13 @@ function lineDiff(before, after) {
 }
 
 // src/client/learning-card.js
-var import_react58 = require("react");
+var import_react59 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
-  const [busy, setBusy] = (0, import_react58.useState)(false);
-  const [error, setError] = (0, import_react58.useState)(initialError);
-  const busyRef = (0, import_react58.useRef)(false);
-  const titleId = (0, import_react58.useId)();
+  const [busy, setBusy] = (0, import_react59.useState)(false);
+  const [error, setError] = (0, import_react59.useState)(initialError);
+  const busyRef = (0, import_react59.useRef)(false);
+  const titleId = (0, import_react59.useId)();
   const answer = (approve) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -21285,58 +21440,58 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     });
   };
   const update = proposal.action === "update";
-  const rows2 = (0, import_react58.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
+  const rows2 = (0, import_react59.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   if (proposal.kind === "agents") {
     const blocks = proposal.edits.map((edit) => [
       ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
       ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
     ]);
-    return (0, import_react58.createElement)(
+    return (0, import_react59.createElement)(
       "section",
       { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-      (0, import_react58.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update") }),
-      (0, import_react58.createElement)(FileBox, { name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks }),
-      proposal.edits.map((edit, index) => edit.why ? (0, import_react58.createElement)("p", { className: "bt-learning-why", key: index }, edit.why) : null),
-      error ? (0, import_react58.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-      (0, import_react58.createElement)(ProposalFoot, { busy, answer })
+      (0, import_react59.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: t("AGENTS.md update") }),
+      (0, import_react59.createElement)(FileBox, { name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks }),
+      proposal.edits.map((edit, index) => edit.why ? (0, import_react59.createElement)("p", { className: "bt-learning-why", key: index }, edit.why) : null),
+      error ? (0, import_react59.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
+      (0, import_react59.createElement)(ProposalFoot, { busy, answer })
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
-  return (0, import_react58.createElement)(
+  return (0, import_react59.createElement)(
     "section",
     { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    (0, import_react58.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail }),
-    (0, import_react58.createElement)(FileBox, { name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
-    proposal.why ? (0, import_react58.createElement)("p", { className: "bt-learning-why" }, proposal.why) : null,
-    error ? (0, import_react58.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    (0, import_react58.createElement)(ProposalFoot, { busy, answer })
+    (0, import_react59.createElement)(ProposalHead, { titleId, title: proposal.name, kind: t(update ? "Skill update" : "New skill"), detail: proposal.description, oldDetail }),
+    (0, import_react59.createElement)(FileBox, { name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
+    proposal.why ? (0, import_react59.createElement)("p", { className: "bt-learning-why" }, proposal.why) : null,
+    error ? (0, import_react59.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
+    (0, import_react59.createElement)(ProposalFoot, { busy, answer })
   );
 }
 function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
-  return (0, import_react58.createElement)(
+  return (0, import_react59.createElement)(
     "div",
     { className: "bt-q-head" },
-    (0, import_react58.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react58.createElement)(icon2)),
-    (0, import_react58.createElement)(
+    (0, import_react59.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react59.createElement)(icon2)),
+    (0, import_react59.createElement)(
       "div",
       { className: "bt-q-text" },
-      (0, import_react58.createElement)("p", { className: "bt-q-title", id: titleId }, title),
-      kind ? (0, import_react58.createElement)("div", { className: "bt-q-detail" }, kind) : null,
-      oldDetail ? (0, import_react58.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react58.createElement)("del", null, oldDetail)) : null,
-      detail ? (0, import_react58.createElement)("p", { className: "bt-learning-description" }, detail) : null
+      (0, import_react59.createElement)("p", { className: "bt-q-title", id: titleId }, title),
+      kind ? (0, import_react59.createElement)("div", { className: "bt-q-detail" }, kind) : null,
+      oldDetail ? (0, import_react59.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react59.createElement)("del", null, oldDetail)) : null,
+      detail ? (0, import_react59.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    (0, import_react58.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react58.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    (0, import_react59.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react59.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
   );
 }
 function ProposalFoot({ busy, answer }) {
-  return (0, import_react58.createElement)(
+  return (0, import_react59.createElement)(
     "div",
     { className: "bt-q-foot bt-learning-foot" },
-    (0, import_react58.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
-    (0, import_react58.createElement)(
+    (0, import_react59.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
+    (0, import_react59.createElement)(
       "button",
       { type: "button", className: "bt-learning-btn bt-learning-approve", disabled: busy, onClick: () => answer(true) },
-      (0, import_react58.createElement)(CheckIcon),
+      (0, import_react59.createElement)(CheckIcon),
       t("Approve")
     )
   );
@@ -21344,43 +21499,43 @@ function ProposalFoot({ busy, answer }) {
 var COLLAPSE_ROWS = 8;
 var SIGNS = { added: "+", removed: "−", same: "" };
 function FileBox({ name, path, state, blocks }) {
-  const [open, setOpen] = (0, import_react58.useState)(false);
+  const [open, setOpen] = (0, import_react59.useState)(false);
   const all = blocks.flat();
   const added = all.filter((row) => row.kind === "added").length;
   const removed = all.filter((row) => row.kind === "removed").length;
   const folds = all.length > COLLAPSE_ROWS;
   const shut = folds && !open;
-  return (0, import_react58.createElement)(
+  return (0, import_react59.createElement)(
     "div",
     { className: "bt-learning-file" },
-    (0, import_react58.createElement)(
+    (0, import_react59.createElement)(
       "div",
       { className: "bt-learning-filehead" },
-      (0, import_react58.createElement)("span", { className: "bt-learning-name" }, name),
-      path ? (0, import_react58.createElement)("span", { className: "bt-learning-path" }, path) : null,
-      (0, import_react58.createElement)("span", { className: "bt-learning-spacer" }),
-      added > 0 ? (0, import_react58.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
-      removed > 0 ? (0, import_react58.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
-      (0, import_react58.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
+      (0, import_react59.createElement)("span", { className: "bt-learning-name" }, name),
+      path ? (0, import_react59.createElement)("span", { className: "bt-learning-path" }, path) : null,
+      (0, import_react59.createElement)("span", { className: "bt-learning-spacer" }),
+      added > 0 ? (0, import_react59.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
+      removed > 0 ? (0, import_react59.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
+      (0, import_react59.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
     ),
-    (0, import_react58.createElement)(
+    (0, import_react59.createElement)(
       "div",
       { className: shut ? "bt-learning-code bt-learning-shut" : "bt-learning-code" },
       blocks.map((rows2, blockIndex) => [
-        blockIndex > 0 ? (0, import_react58.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
-        ...rows2.map((row, rowIndex) => (0, import_react58.createElement)(
+        blockIndex > 0 ? (0, import_react59.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
+        ...rows2.map((row, rowIndex) => (0, import_react59.createElement)(
           "div",
           { className: `bt-learning-row bt-learning-${row.kind}`, key: `${blockIndex}-${rowIndex}` },
-          (0, import_react58.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
-          (0, import_react58.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
-          (0, import_react58.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
+          (0, import_react59.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
+          (0, import_react59.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
+          (0, import_react59.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
         ))
       ])
     ),
-    folds ? (0, import_react58.createElement)(
+    folds ? (0, import_react59.createElement)(
       "div",
       { className: shut ? "bt-learning-morebar bt-learning-morebar-shut" : "bt-learning-morebar" },
-      (0, import_react58.createElement)(
+      (0, import_react59.createElement)(
         "button",
         { type: "button", className: "bt-learning-more", "aria-expanded": open, onClick: () => setOpen(!open) },
         t(open ? "Show less" : "Show all {count} lines", { count: all.length })
@@ -21391,7 +21546,7 @@ function FileBox({ name, path, state, blocks }) {
 function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const facts = useTurnFacts(sessionId, actions);
-  const [failed, setFailed] = (0, import_react58.useState)({});
+  const [failed, setFailed] = (0, import_react59.useState)({});
   const bot = roster.byId?.[sessionId];
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
@@ -21418,10 +21573,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
     delete next[id];
     return next;
   });
-  return (0, import_react58.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react58.createElement)(
+  return (0, import_react59.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react59.createElement)(
     "div",
     { className: "bt-q-inline", key: proposal.id },
-    (0, import_react58.createElement)(ProposalCard, {
+    (0, import_react59.createElement)(ProposalCard, {
       proposal,
       initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
       onFailure,
@@ -21431,10 +21586,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   )));
 }
 function LearningTurnTail(props) {
-  return (0, import_react58.createElement)(LearningProposals, { ...props, dock: false });
+  return (0, import_react59.createElement)(LearningProposals, { ...props, dock: false });
 }
 function LearningDock(props) {
-  return (0, import_react58.createElement)(LearningProposals, { ...props, dock: true });
+  return (0, import_react59.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
@@ -21517,7 +21672,7 @@ function createSwitchWindow(settle) {
 }
 
 // src/client/user-message.js
-var import_react59 = require("react");
+var import_react60 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var canDrawUserMessages = () => typeof ui.projectUserText === "function";
 function contentParts(content) {
@@ -21549,38 +21704,38 @@ function userTextParts(text, bots, referenceLabels = []) {
   return parts;
 }
 function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
-  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react59.createElement)(
+  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react60.createElement)(
     "button",
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
-    (0, import_react59.createElement)(BotMark, { bot: part.bot, size: 16 }),
+    (0, import_react60.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react59.createElement)(import_react59.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react60.createElement)(import_react60.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
-  return (0, import_react59.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
+  return (0, import_react60.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
     if (block.type === "image") {
-      return renderMessageImages ? (0, import_react59.createElement)(import_react59.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
+      return renderMessageImages ? (0, import_react60.createElement)(import_react60.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
-    return (0, import_react59.createElement)(
+    return (0, import_react60.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui.FileTypeIcon ? (0, import_react59.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
-      (0, import_react59.createElement)("span", { className: "bt-ufile-text" }, (0, import_react59.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react59.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
+      ui.FileTypeIcon ? (0, import_react60.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      (0, import_react60.createElement)("span", { className: "bt-ufile-text" }, (0, import_react60.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react60.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
 }
 function CopyButton({ text }) {
-  const [copied, setCopied] = (0, import_react59.useState)(false);
+  const [copied, setCopied] = (0, import_react60.useState)(false);
   const copy2 = () => {
     void navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
     });
   };
-  return (0, import_react59.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react59.createElement)(CheckIcon) : (0, import_react59.createElement)(CopyIcon));
+  return (0, import_react60.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react60.createElement)(CheckIcon) : (0, import_react60.createElement)(CopyIcon));
 }
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
@@ -21592,10 +21747,10 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const steering = node.kind === "steering";
   const groupTime = roster.roomsById?.[sessionId] && Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const { shown, folded, control } = useFold(text, { markdown: false });
-  const body = (0, import_react59.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
-  const row = (0, import_react59.useRef)(null);
-  const [toolsOpen, setToolsOpen] = (0, import_react59.useState)(false);
-  (0, import_react59.useEffect)(() => {
+  const body = (0, import_react60.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  const row = (0, import_react60.useRef)(null);
+  const [toolsOpen, setToolsOpen] = (0, import_react60.useState)(false);
+  (0, import_react60.useEffect)(() => {
     if (!toolsOpen) return void 0;
     const onDown = (event) => {
       if (!row.current?.contains(event.target)) setToolsOpen(false);
@@ -21611,24 +21766,24 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
     if (!noHover() || event.target instanceof Element && event.target.closest("a,button,input,textarea,select,pre,code,[role=button],[role=link]")) return;
     setToolsOpen((value) => !value);
   };
-  return (0, import_react59.createElement)(
+  return (0, import_react60.createElement)(
     "div",
     { ref: row, className: "bt-umsg", "data-steering": steering || void 0 },
-    (0, import_react59.createElement)(
+    (0, import_react60.createElement)(
       "div",
       { className: "bt-ustack" },
-      attachments.length > 0 ? (0, import_react59.createElement)(Attachments, { attachments, renderMessageImages }) : null,
-      text !== "" || rest.length > 0 ? (0, import_react59.createElement)(
+      attachments.length > 0 ? (0, import_react60.createElement)(Attachments, { attachments, renderMessageImages }) : null,
+      text !== "" || rest.length > 0 ? (0, import_react60.createElement)(
         "div",
-        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, onClick: tapTools },
-        control ? (0, import_react59.createElement)("div", { className: "bt-fold-body" }, body) : body,
+        { className: "bt-ubody", "data-bt-quote-session": sessionId, title: clock3(data.time), "data-folded": folded || void 0, onClick: tapTools },
+        control ? (0, import_react60.createElement)("div", { className: "bt-fold-body" }, body) : body,
         control,
-        rest.map((block, index) => ui.JsonBlock ? (0, import_react59.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+        rest.map((block, index) => ui.JsonBlock ? (0, import_react60.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
-      referenceLabels.length > 0 ? (0, import_react59.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
-      groupTime ? (0, import_react59.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, groupTime) : null
+      referenceLabels.length > 0 ? (0, import_react60.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
+      groupTime ? (0, import_react60.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, groupTime) : null
     ),
-    text === "" ? null : (0, import_react59.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react59.createElement)(CopyButton, { text }))
+    text === "" ? null : (0, import_react60.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react60.createElement)(CopyButton, { text }))
   );
 }
 var USER_MESSAGE_CSS = `

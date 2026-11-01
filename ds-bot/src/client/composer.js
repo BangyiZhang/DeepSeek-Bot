@@ -4,6 +4,7 @@ import { ChatsIcon, ClockIcon, MicIcon, PaperclipIcon, PeopleIcon, PlusIcon, Wav
 import { BotMark } from './mark.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
+import { quoteText } from './quote.js'
 
 // -------------------------------------------------------------------------
 // Composer: dictation mic and the voice-chat button. The shell's send
@@ -62,9 +63,7 @@ export function ComposerVoice({ sessionId, inputActions, actions, useUi }) {
   useEffect(() => {
     if (!quote || !inputActions) return
     actions.clearQuote(quote.token)
-    const excerpt = quote.text.replace(/\s+/g, ' ').trim()
-    const line = `> ${excerpt.length > 200 ? `${excerpt.slice(0, 200)}…` : excerpt}\n\n`
-    inputActions.insertText(line, inputActions.captureInsertion())
+    inputActions.insertText(quoteText(quote), inputActions.captureInsertion())
     const box = document.querySelector('[class*="_centerCol"] [role=textbox][contenteditable=true]')
     if (box instanceof HTMLElement) {
       box.focus()

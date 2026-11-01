@@ -5,6 +5,8 @@
 export const NAMESPACE = 'ds-bot'
 
 const ZH = {
+  'Quote selection': '引用回复',
+  'Selected text actions': '选中文字操作',
   'Connect plugins': '连接插件',
   'Tasks': '任务',
   'Task type': '任务类型',

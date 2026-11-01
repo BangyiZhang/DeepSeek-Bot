@@ -78,7 +78,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       return after(call('side-close', { chatId }))
     },
     closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state)) },
-    quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    quote: (sessionId, text, options = {}) => ui.set(state => ({ ...state, quote: { sessionId, text, selection: options.selection === true, token: Date.now() } })),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     deleteRoom: id => after(call('delete-room', { id })),
