@@ -9,7 +9,7 @@ import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
-import { checkShownView } from '../shared/views.js'
+import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -54,7 +54,7 @@ export function install(rt) {
   // Main Bots see every group; other Bots see the groups they are in.
   const visibleRooms = self => Object.values(state.rooms).filter(room => rt.isMain(self) || room.members.includes(self))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'list_bots',
     description: 'List every Bot on the user\'s team with its role, what it does and what it is doing right now, and the group chats you can see.',
     parameters: {},
@@ -63,8 +63,10 @@ export function install(rt) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
       const lines = Object.values(state.bots).map(bot => {
+        // A private Bot is only named to the others: not what it does, where, or what now.
+        if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
         const model = bot.appliedModel ?? bot.model
-        const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+        const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
         const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
         return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
@@ -138,7 +140,7 @@ export function install(rt) {
   const calledInPosts = new Map()
   const turnOf = exec => rt.live.get(exec.agent?.id)?.turn
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'message_bot',
     description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
     parameters: {
@@ -239,7 +241,10 @@ export function install(rt) {
         try {
           await rt.deliver({ fromId: sender.id, toId: target.id, text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
         } catch (error) {
-          if (!joins) rt.dropWork(exchangeId)
+          // The delivery stays noted for the next start while its Bot exists
+          // (resume.js), and the resent request still answers up the tree, so the
+          // work it opened stays too. Only a target that is gone drops the work.
+          if (!joins && rt.botOf(target.id) === undefined) rt.dropWork(exchangeId)
           throw error
         }
         const sent = toUser
@@ -266,7 +271,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'stop_bot',
     description: 'Main Bot only. Stop another Bot\'s running turn immediately — when it must not finish a dangerous action and a message_bot warning is not enough. Its queued messages are dropped with the turn. It is then told why in a new turn, whose reply comes back to you.',
     parameters: {
@@ -293,7 +298,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'create_bot',
     description: 'Main Bot only. Create a new Bot on the user\'s team. It appears in the sidebar and greets the user.',
     parameters: {
@@ -302,7 +307,7 @@ export function install(rt) {
       instructions: { type: 'string', required: true, description: 'What this Bot is responsible for and how it should work' },
       brief: { type: 'string', description: 'Why the user wants it, passed to the new Bot as its first context' },
       model: { type: 'string', description: 'Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on.' },
-      effort: { type: 'string', description: 'Thinking level for the model, as list_models shows it. Only when the user names one.' },
+      effort: { type: 'string', description: 'Thinking level for the model, as list_bot_models shows it. Only when the user names one.' },
       work_dir: WORK_DIR_PARAM,
       avatar: AVATAR_PARAM,
     },
@@ -328,7 +333,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'update_bot',
     description: 'Change a Bot\'s name, role, color, profile picture, model, thinking level, working folder, or instructions. Every Bot may change itself; only a Main Bot may change another Bot.',
     parameters: {
@@ -339,7 +344,7 @@ export function install(rt) {
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       avatar: { ...AVATAR_PARAM, description: `${AVATAR_PARAM.description} An empty string removes the photo and shows the Bot's character again.` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
-      effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_models shows; an empty string returns to the model\'s default' },
+      effort: { type: 'string', description: 'Thinking level for the Bot\'s model, as list_bot_models shows; an empty string returns to the model\'s default' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
     },
     output,
@@ -365,7 +370,7 @@ export function install(rt) {
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self)
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self, exec.agent?.id)
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
@@ -403,8 +408,8 @@ export function install(rt) {
     return result
   })
 
-  ctx.tools.register(defineTool({
-    name: 'list_models',
+  rt.teamTools.push(defineTool({
+    name: 'list_bot_models',
     description: 'List the models a Bot can run on, as provider/model refs for create_bot and update_bot. A model in use also lists the thinking levels it serves.',
     parameters: {},
     output,
@@ -445,7 +450,7 @@ export function install(rt) {
     return { error: `No group chat called "${unquote(ref)}" that you can see. Groups: ${groupNames(self)}.` }
   }
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'create_group',
     description: 'Main Bot only. Create a group chat with the user and some Bots. You join it as its admin unless you name another member.',
     parameters: {
@@ -474,7 +479,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'update_group',
     description: 'Change a group chat: rename it, set its notice, add or remove members, change its admin or reply mode. Main Bots may change any group; a group\'s admin may change its own group.',
     parameters: {
@@ -535,7 +540,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'delete_group',
     description: 'Main Bot only. Delete a group chat; its history is archived. Only when the user asks.',
     parameters: { group: GROUP_REF },
@@ -552,7 +557,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'post_to_group',
     description: 'Post a message into a group chat as yourself. A Main Bot may post into any group, any other Bot into a group it is in. A Main Bot\'s or the group admin\'s post starts a round: members reply in the group, where the user reads them. Another member\'s post calls only the members it names with "@Name"; without one it is only written into the group.',
     parameters: {
@@ -606,7 +611,7 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'ask_user',
     description: 'Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user\'s next message.',
     parameters: {
@@ -665,19 +670,12 @@ export function install(rt) {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  // Scoped per Bot session, not global: another plugin's global show_view serves
+  // the sessions ds-bot does not own, while this one shadows it inside them.
+  rt.teamTools.push(defineTool({
     name: 'show_view',
-    description: 'Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user\'s next message. Never collect a key, token or password. Keep the view under 8 KB.',
-    parameters: {
-      title: { type: 'string', description: 'Optional short heading shown above the view' },
-      view: {
-        type: 'object',
-        required: true,
-        additionalProperties: true,
-        description: 'One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: "formula" }. Display: text ({ text: Markdown, tone?: "muted" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { "=": "expression" } over input ids and let names: numbers, \'text\', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs\' values to you).',
-      },
-      await_reply: { type: 'boolean', description: 'Wait for the user to submit the view. A view with options, confirm, form or submit always waits; a view without them cannot.' },
-    },
+    description: showViewDescription({ where: 'your own chat' }),
+    parameters: showViewParameters,
     output,
     async execute(args, exec) {
       await rt.load()
@@ -709,28 +707,120 @@ export function install(rt) {
     },
   }))
 
+  // The team tools live in each Session's own scope, never in the global layer:
+  // a Bot's chat and a member's group Session get all of them, a group's own
+  // Session gets only its relay, and a Session ds-bot does not own gets none —
+  // so they never appear in a plain dsh conversation, and another plugin's
+  // same-named global tool can neither collide with them at boot nor shadow
+  // them inside these Sessions. What is scoped onto a Session is kept by its
+  // disposers and goes with the ownership: indexSessions (store.js) runs
+  // syncScopedTools on every save and adopt, so a deleted Bot's adopted
+  // Session, a member who left, or a deleted group shows the plain dsh surface
+  // again — and the unload effect lifts whatever is left. The same sync scopes
+  // the live Agents back: a reload lifts their scope while they are still
+  // live, and agent/created does not fire for them again, so without the walk
+  // their next request would come without the team tools.
+  /** @type {Map<string, {agent: any, relay: boolean, tools: boolean, restricted: boolean, disposers: Array<() => void>}>} */
+  const scoped = new Map()
+  const unscope = (id) => {
+    const held = scoped.get(id)
+    if (held === undefined) return
+    scoped.delete(id)
+    for (const dispose of held.disposers) {
+      try {
+        dispose()
+      } catch (error) {
+        rt.warn('ds-bot: a scoped tool of %s was not removed: %s', id, error)
+      }
+    }
+  }
+  const syncScopedTools = () => {
+    // unscope() deletes as it goes, which a Map keys iterator takes in stride.
+    for (const id of scoped.keys()) {
+      if (!rt.isBotSession(id) && rt.roomOf(id) === undefined) unscope(id)
+    }
+    // A reload lifts the scope of Agents that are still live, and an adopted
+    // file can newly own one that already runs: scope each live Agent the team
+    // owns before its next request. hideBotUnusedTools does nothing for a
+    // Session that stays unowned, and nothing twice for one already scoped.
+    for (const agent of ctx.get?.('agents')?.list?.() ?? []) hideBotUnusedTools(agent)
+  }
+  ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
+
+  const shareBotTools = (agent) => {
+    if (agent === undefined) return
+    const id = agent.session?.id
+    const owns = rt.isBotSession(id)
+    const relayOnly = !owns && rt.roomOf(id) !== undefined
+    const wanted = owns || relayOnly
+    let held = scoped.get(id)
+    // A Session that left the team, a scope of the wrong kind, or a fresh Agent
+    // for one Session all start over; a wanted scope is registered again below.
+    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly)) {
+      unscope(id)
+      held = undefined
+    }
+    if (!wanted || held?.tools === true) return
+    if (typeof agent.ctx?.tools?.register !== 'function') return
+    const disposers = []
+    const failed = []
+    for (const def of rt.teamTools) {
+      if (relayOnly && def.name !== 'group_relay') continue
+      try {
+        const dispose = agent.ctx.tools.register(def)
+        if (typeof dispose === 'function') disposers.push(dispose)
+      } catch (error) {
+        // A tool another plugin already scoped onto this agent stays missing
+        // rather than stopping the team; the rest still land.
+        failed.push(`${def.name}: ${error.message ?? error}`)
+      }
+    }
+    held ??= { relay: relayOnly, tools: false, restricted: false, disposers: [] }
+    held.agent = agent
+    held.relay = relayOnly
+    held.tools = true
+    held.disposers.push(...disposers)
+    scoped.set(id, held)
+    if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
+  }
+
   // dsh's own question tool holds the turn open until the user answers, and every
   // message from another Bot or a group round queues behind it. Bot Sessions ask
   // through ask_user instead, so the tool is taken out of their tool list, as are the
-  // goal tools.
-  const hiddenTools = new WeakSet()
+  // goal tools. The restrict is kept with the Session's scope, so it lifts with it.
   const hideBotUnusedTools = (agent) => {
-    if (agent === undefined || hiddenTools.has(agent) || !rt.isBotSession(agent.session?.id)) return
+    shareBotTools(agent)
+    const id = agent?.session?.id
+    // The shell shadows go with the scope, so a reload or a Session that leaves
+    // the team lifts them like the rest, and the Agent can be scoped again.
+    const shadows = rt.shadowShells?.(agent) ?? []
+    if (shadows.length > 0) {
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
+      held.agent = agent
+      held.disposers.push(...shadows)
+      scoped.set(id, held)
+    }
+    if (agent === undefined || !rt.isBotSession(id) || scoped.get(id)?.restricted === true) return
     if (typeof agent.ctx?.tools?.restrict !== 'function') return
     try {
       // restrict() throws on a name this profile does not serve.
       const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
       const deny = HIDDEN_TOOLS.filter(name => served.has(name))
       if (deny.length === 0) return
-      agent.ctx.tools.restrict({ deny })
-      hiddenTools.add(agent)
+      const lift = agent.ctx.tools.restrict({ deny })
+      const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, disposers: [] }
+      held.agent = agent
+      if (typeof lift === 'function') held.disposers.push(lift)
+      held.restricted = true
+      scoped.set(id, held)
     } catch (error) {
-      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), agent.session?.id, error)
+      rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), id, error)
     }
   }
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
-  // list is only trimmed once ds-bot resolves that Agent again; meanwhile the guard
-  // refuses the question tool in any Bot Session, and a goal made there is blocked.
+  // recording path resolves it again once the session is known as a Bot's; meanwhile
+  // the guard refuses the question tool in any Bot Session, and a goal made there is
+  // blocked.
   ctx.tools.guard(exec => (exec.name === BLOCKING_QUESTION_TOOL && rt.isBotSession(exec.agent?.id)
     ? `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
     : undefined))
@@ -774,7 +864,7 @@ export function install(rt) {
     setTimeout(() => void blockGoal(id), 0)
   })
 
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'list_capabilities',
     description: 'List shared MCP servers, skills, and packs, plus the capabilities attached to you.',
     parameters: {},
@@ -798,7 +888,7 @@ export function install(rt) {
       return ['Shared capabilities:', ...lines].join('\n')
     },
   }))
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'save_capability',
     description: 'Create or update a shared MCP server, skill, or pack. Changes apply from your next message.',
     parameters: {
@@ -828,7 +918,7 @@ export function install(rt) {
       } catch (error) { return error.message }
     },
   }))
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'delete_capability',
     description: 'Remove a shared capability and detach it from every Bot and pack.',
     parameters: { name: { type: 'string', required: true } },
@@ -844,7 +934,7 @@ export function install(rt) {
     },
   }))
   for (const [name, endpoint, verb] of [['attach_capability', 'attach', 'Attached'], ['detach_capability', 'detach', 'Detached']]) {
-    ctx.tools.register(defineTool({
+    rt.teamTools.push(defineTool({
       name,
       description: `${verb} a shared capability to yourself, or to another Bot if you are a Main Bot.`,
       parameters: {
@@ -872,5 +962,5 @@ export function install(rt) {
     }))
   }
 
-  Object.assign(rt, { pickRoom, hideBotUnusedTools })
+  Object.assign(rt, { pickRoom, hideBotUnusedTools, syncScopedTools })
 }

@@ -31,7 +31,10 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
     agent.whenIdle = async () => {}
     if (id.startsWith('worker-')) {
       calls.workerTools.set(id, [...calls.globalTools, 'subagent'])
-      agent.ctx = { tools: { restrict(filter) {
+      agent.ctx = { tools: { register(tool) {
+        calls.workerTools.get(id).push(tool.name)
+        return () => { calls.workerTools.set(id, calls.workerTools.get(id).filter(name => name !== tool.name)) }
+      }, restrict(filter) {
         if (workerRestrictFails) return () => {}
         assert.equal([...(filter.allow ?? []), ...(filter.deny ?? [])].every(name => calls.globalTools.includes(name)), true, 'Only global registrations may be masked')
         calls.workerTools.set(id, calls.workerTools.get(id).filter(name => !calls.globalTools.includes(name) || ((!filter.allow || filter.allow.includes(name)) && !filter.deny?.includes(name))))
@@ -78,7 +81,7 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
     append(id, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); sessions.get(id).status = 'idle'
   }
   const rt = {
-    ctx, home, config: { durableTasks: enabled }, state: { bots, agents, prefs: {}, questions: {} }, save: async () => {}, live: new Map(), groupOwners: new Map([['group-chief', { botId: 'chief', roomId: 'room' }]]),
+    ctx, home, teamTools: [], config: { durableTasks: enabled }, state: { bots, agents, prefs: {}, questions: {} }, save: async () => {}, live: new Map(), groupOwners: new Map([['group-chief', { botId: 'chief', roomId: 'room' }]]),
     load: async () => {}, readOnly: () => undefined, botOf: id => bots[id], selfOf: id => ['chief', 'peer', 'old-chief'].includes(id) ? id === 'old-chief' ? 'chief' : id : id === 'group-chief' ? 'chief' : undefined,
     chatOf: id => id, agentOf: id => Object.values(agents).find(agent => agent.sessions.includes(id)),
     resolveAgent: async id => sessions.get(id), sessionFolder: session => session.header.cwd, isFolder: async () => true,
@@ -89,7 +92,7 @@ async function bench(t, { permission = 'workspace-write', capabilities = [], beh
   }
   install(rt)
   t.after(async () => { for (const cleanup of effects.splice(0).reverse()) await cleanup?.(); await rm(home, { recursive: true, force: true }) })
-  const execute = (name, args = {}, agent = source, callId = 'call-one') => calls.tools.get(name).execute(args, { agent, callId })
+  const execute = (name, args = {}, agent = source, callId = 'call-one') => rt.teamTools.find(tool => tool.name === name).execute(args, { agent, callId })
   const recreate = id => {
     const previous = sessions.get(id)
     const history = records.get(id)
@@ -518,4 +521,31 @@ test('worker pre-step accepts only its cataloged child messages and settlement n
   }
   b.ctx.get = get
   assert.equal((await b.beforeStep(worker, [{ source: { kind: 'agent-message', form: 'relay', senderSessionId: 'owned-child' } }])).kind, 'reject')
+})
+
+
+test('worker context and HITL tools are restored in its own scope after restart', async t => {
+  const b = await bench(t, { behavior: 'wait' })
+  const delegated = ['recall', 'read_own_chat', 'list_capabilities', 'ask_user']
+  b.calls.sourceTools.push(...delegated)
+  b.rt.teamTools.push(...delegated.map(name => ({ name, execute: async () => name })))
+  const admitted = JSON.parse(await b.execute('create_durable_task', request))
+  await until(() => b.calls.prompts.length === 1)
+  const verify = () => {
+    const tools = b.calls.workerTools.get('worker-1')
+    for (const name of delegated) {
+      assert.equal(b.calls.globalTools.includes(name), false, name)
+      assert.equal(tools.includes(name), true, name)
+      assert.equal(b.calls.guards.get('worker-1')({ name }), undefined)
+    }
+    for (const name of ['create_bot', 'create_durable_task', 'request_desktop_update']) {
+      assert.equal(tools.includes(name), false, name)
+      assert.match(b.calls.guards.get('worker-1')({ name }), /not delegated/)
+    }
+  }
+  verify()
+  const restored = b.recreate('worker-1')
+  await b.beforeStep(restored)
+  verify()
+  assert.equal((await state(b, admitted.key)).key, admitted.key)
 })

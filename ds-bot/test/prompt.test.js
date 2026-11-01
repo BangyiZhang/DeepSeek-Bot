@@ -88,8 +88,10 @@ test('enabling durable tasks leaves simple work in chat and lets each Bot judge 
 test('the task creation schema describes selective routing rather than forcing every tool workflow into persistence', t => {
   const ctx = fakeContext()
   t.after(() => ctx.dispose())
-  installDurableTools({ ctx })
-  const { description } = ctx.registeredTools.get('create_durable_task')
+  const teamTools = []
+  installDurableTools({ ctx, teamTools })
+  assert.equal(ctx.registeredTools.size, 0, 'Durable controls are scoped to Bot sessions')
+  const { description } = teamTools.find(tool => tool.name === 'create_durable_task')
   assert.match(description, /only when saving progress and interruption recovery add meaningful value/)
   assert.match(description, /Quick lookups, reading documents, checking commands, and small single-step operations normally stay in the current chat/)
   assert.match(description, /Tool use, several steps, or needing user confirmation alone do not require persistence/)

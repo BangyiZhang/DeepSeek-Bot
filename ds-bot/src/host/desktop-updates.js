@@ -46,7 +46,7 @@ export function install(rt, env = process.env) {
     return bridge.request(op, body)
   }
   ctx.provide('dsBotDesktopUpdates', { readiness: () => desktopReadiness(rt) })
-  ctx.tools.register(defineTool({
+  rt.teamTools.push(defineTool({
     name: 'request_desktop_update',
     description: 'Queue installation of a tested local DeepSeek Bot Mac app for a direct user request in your own chat. First run the repository local-update:prepare command and read its build report. Pass its exact appPath and evidencePath. This queues a handoff, not installation success: briefly report that it is queued and END your turn. Do not wait or poll. The controller waits for all team work to be idle, exits the app, installs, restarts and reports the verified outcome here. It keeps the same data and restores the old app if startup fails. Build/update work requiring this team tool must stay in this chat, not a durable worker. Never call this from an automated update receipt or another Bot message.',
     parameters: { appPath: { type: 'string', required: true, description: 'Absolute .app path from local-update:prepare' }, evidencePath: { type: 'string', required: true, description: 'Absolute passing build report path for that exact app' } }, output,
@@ -57,7 +57,7 @@ export function install(rt, env = process.env) {
       return JSON.stringify(await request('queue', { ...args, origin, requestKey }))
     },
   }))
-  ctx.tools.register(defineTool({ name: 'get_desktop_update', description: 'Read the saved local application update receipt when the user asks about it. Does not install, retry or poll an update.', parameters: {}, output,
+  rt.teamTools.push(defineTool({ name: 'get_desktop_update', description: 'Read the saved local application update receipt when the user asks about it. Does not install, retry or poll an update.', parameters: {}, output,
     async execute(_args, exec) { await desktopCaller(rt, exec); return JSON.stringify(await request('status')) },
   }))
   ctx.effect(() => {

@@ -21,7 +21,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './cons
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
-import { checkShownView, inputsSummary, normalizeView, validateViewAnswer, viewSummary } from '../shared/views.js'
+import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
 // which means nothing without the card. Arguments the tool would refuse (no question,
@@ -40,23 +40,8 @@ export function cardText(args) {
   return `[Question card] ${question}${detail ? ` (${detail})` : ''}\nOptions: ${options.join(' / ')}`
 }
 
-// A show_view card as the user saw it. A call the tool would refuse (an oversized
-// or invalid view, no title, a display-only card asked to wait or an interactive
-// one told not to) showed no card, so it gives no text. checkShownView runs the
-// tool's own checks, normalization included, so a wrapped card keeps its summary.
-export function viewCardText(args) {
-  let card = args
-  if (typeof card === 'string') {
-    try { card = JSON.parse(card) } catch { return '' }
-  }
-  const shown = checkShownView(card?.title, card?.view)
-  if (shown.error !== undefined) return ''
-  if (!shown.interactive && card?.await_reply === true) return ''
-  if (shown.interactive && card?.await_reply === false) return ''
-  const summary = viewSummary(shown.view)
-  const head = shown.title === '' ? '[View card]' : `[View card] ${shown.title}`
-  return summary === '' ? head : `${head}\n${summary}`
-}
+// The card text and reply format live in the shared deep-view core.
+export { viewCardText, viewReply }
 
 // What one event adds to a Bot's chat history: an answer of the Bot's (its text, or a
 // question card), or a message from the user (`who: 'user'`) or another Bot
@@ -87,63 +72,55 @@ export function questionReply(question, answer) {
   }
 }
 
-// The user's answer to a show_view card. The message carries the blueprint with
-// the answer, so the answer still makes sense after a checkpoint drops the card.
-export function viewReply(record, action, values) {
-  const checked = validateViewAnswer(record?.view, action, values)
-  if (checked.error !== undefined) return undefined
-  const callId = record.callId ?? record.id
-  const shown = { id: record.id, title: record.title, view: record.view }
-  const given = { id: record.id, action, values: checked }
+
+// The user's answer to a browser_handoff card: they finished the step, skipped it,
+// or only gave the browser back from its panel. The message carries the reason with
+// the answer, so it still makes sense after a checkpoint drops the card.
+export function handoffReply(hold, outcome) {
+  const settled = outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'returned'
+  const callId = hold.callId
+  const message = settled === 'skipped'
+    ? 'The user skipped this step and gave the browser back. Do not retry it. Do what you can without it, or tell the user you cannot.'
+    : settled === 'done'
+      ? 'The user finished this step and gave the browser back. Carry on from where you stopped. Take a browser_snapshot first to see the page.'
+      : 'The user gave the browser back. Do not assume this step is finished. Take a browser_snapshot to see the page, then carry on or ask the user what remains.'
   return {
-    text: JSON.stringify({ kind: 'answer_to_pending_view', tool: 'show_view', callId, views: [shown], answers: [given] }),
+    text: JSON.stringify({
+      kind: 'answer_to_pending_handoff',
+      tool: 'browser_handoff',
+      callId,
+      reason: hold.reason,
+      ...(hold.note ? { note: hold.note } : {}),
+      outcome: settled,
+      message,
+    }),
     source: { kind: REPLY_KIND, callId, outcome: 'answered' },
   }
 }
 
-const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-
 export function readReply(text) {
   let value
   try { value = JSON.parse(text) } catch { return undefined }
-  if (value?.kind === 'answer_to_pending_view' || (Array.isArray(value?.views) && value.views.length > 0 && value?.kind !== 'answer_to_pending_question')) {
-    const views = (Array.isArray(value.views) ? value.views : []).filter(item => typeof item?.id === 'string' && typeof item.title === 'string' && isRecord(item.view))
-    if (views.length === 0) return undefined
-    const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && typeof item.action === 'string' && isRecord(item.values))
-    return { views, answers }
+  if (value?.kind === 'answer_to_pending_handoff') {
+    if (typeof value.callId !== 'string' || typeof value.reason !== 'string') return undefined
+    return { handoff: { callId: value.callId, reason: value.reason, note: typeof value.note === 'string' ? value.note : '', outcome: value.outcome === 'skipped' || value.outcome === 'returned' ? value.outcome : 'done' } }
   }
+  const viewReplyData = readViewReply(text)
+  if (viewReplyData !== undefined) return viewReplyData
   const questions = Array.isArray(value?.questions) ? value.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
   if (questions.length === 0) return undefined
   const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
   return { questions, answers }
 }
 
-// The submitted component, and the view's inputs as the user left them. A long form
-// is cut so a checkpoint stays small.
-function actionSummary(answer, view) {
-  const values = answer?.values
-  if (!isRecord(values)) return '(skipped)'
-  const inputs = inputsSummary(view, values.inputs)
-  let text
-  if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(', ')}`
-  else if (typeof values.confirmed === 'boolean') text = values.confirmed ? 'confirmed' : 'cancelled'
-  else if (isRecord(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join('; ')
-  else if (inputs !== '') text = ''
-  else text = typeof answer.action === 'string' && answer.action !== '' ? answer.action : '(skipped)'
-  if (inputs !== '') text = text === '' ? inputs : `${text}; ${inputs}`
-  if (text === '') text = '(empty)'
-  return text.length > 500 ? text.slice(0, 500) : text
-}
-
 export function replyText(text) {
   const reply = readReply(text)
   if (reply === undefined) return text
-  if (reply.views !== undefined) {
-    return reply.views.map((view) => {
-      const answer = reply.answers.find(item => item.id === view.id)
-      return `${view.title === '' ? '[Answer to view card]' : `[Answer to view card] ${view.title}`}\nAnswer: ${actionSummary(answer, view.view)}`
-    }).join('\n\n')
+  if (reply.handoff !== undefined) {
+    const { reason, note, outcome } = reply.handoff
+    return `[Browser handoff] ${note === '' ? reason : `${reason} — ${note}`}\nAnswer: ${outcome}`
   }
+  if (reply.views !== undefined) return viewReplyText(text)
   return reply.questions.map((question) => {
     const answer = reply.answers.find(item => item.id === question.id)
     const values = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
@@ -203,8 +180,8 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
-  // A failed connection says nothing about the conversation, so it never moves a part on.
-  const STUCK_CODES = ['INVALID_REQUEST', 'IMAGE_OFFLOAD_REQUIRED']
+  // Generic request and credential errors say nothing about the conversation.
+  const STUCK_CODES = ['IMAGE_OFFLOAD_REQUIRED']
   const ORIGINAL_COMPACT = Symbol.for('ds-bot/compaction')
   const STEWARD_MAX_TOKENS = 4_096
   const STEWARD_TIMEOUT_MS = 120_000
@@ -215,9 +192,9 @@ export function install(rt) {
   // A broken provider adapter must not crash every turn; estimate from the
   // derived messages instead, with one warning.
   let measureWarned = false
-  const tokensOf = (session) => {
+  const measureOf = (session) => {
     try {
-      return ctx.get('tokenMeter')?.measure(session).totalTokens
+      return ctx.get('tokenMeter')?.measure(session)
     } catch (error) {
       if (!measureWarned) {
         measureWarned = true
@@ -225,12 +202,46 @@ export function install(rt) {
       }
     }
     try {
-      return estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n'))
+      return { totalTokens: estimateTokens(session.deriveMessages().map(message => textOf(message.content)).join('\n')) }
     } catch {
       return undefined
     }
   }
+  const tokensOf = session => measureOf(session)?.totalTokens
   const clock = createClock(config.timeZone)
+  // Replacing a handoff must shrink the request, not just create another Session.
+  async function canMakeRoom(agent, carry = []) {
+    const session = agent.session
+    const messages = session.deriveMessages()
+    if (!messages.some(message => message.source?.handoff === true)) return true
+    const place = placeOf(agent.id)
+    const room = rt.roomOf(place.roomId)
+    const parts = partsOf(place.botId, place.roomId)
+    const previous = parts.at(-2)
+    const lines = await contextLines(session).catch(() => undefined)
+    const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
+    const text = handoffPackage({
+      room,
+      segment: { fallback: 'overflow', ...(previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}) },
+      lines: await handoffLines(agent.id, { budget, group: room !== undefined, number: parts.length }),
+      number: parts.length + 1,
+      resume: true,
+      overflow: true,
+    })
+    const meter = ctx.get('tokenMeter')
+    const size = message => meter?.estimateMessage(message) ?? estimateTokens(textOf(message.content))
+    const measured = measureOf(session)
+    // Images in the replaced history must use the same route pricing as the total.
+    const history = measured?.nodes === undefined
+      ? messages.filter(message => message.role !== 'system').reduce((total, message) => total + size(message), 0)
+      : measured.nodes.filter(node => session.eventAt(node.seq).type !== 'system/message').reduce((total, node) => total + node.tokens, 0)
+    const pending = carry.reduce((total, message) => total + size(message), 0)
+    const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
+    const tokens = measured?.totalTokens
+    // The system prompt and tool definitions stay; pending input is forwarded whole.
+    return replacement < history + pending
+      && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
+  }
 
   // Lines for the model the Session last routed to; undefined while it has not
   // routed yet.
@@ -788,7 +799,10 @@ export function install(rt) {
         if (currentOf(owner) !== sessionId) {
           await forward(owner, held)
           for (const message of held) agent.inbox.remove(message.id)
-          await ctx.workspaceRegistry.archiveSession(sessionId)
+          // An interrupted switch may not have finished moving the tasks over; stop
+          // the earlier part only after they sit on the part that replaced it.
+          await rt.moveSchedules?.(sessionId, currentOf(owner))
+          await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
             .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
@@ -876,7 +890,14 @@ export function install(rt) {
     }
     if (job.moved) {
       rt.renewMemory(agent.id)
-      await ctx.workspaceRegistry.archiveSession(agent.id)
+      try {
+        await rt.moveSchedules(agent.id, currentOf(job))
+      } catch (error) {
+        // Keep the restart marker: stopping this part would delete unmoved tasks.
+        job.kept = true
+        throw error
+      }
+      await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
     }
   }
@@ -977,7 +998,6 @@ export function install(rt) {
     const now = await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute(bot, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
-    void rt.moveSchedules(agent.id, freshId)
     job.moved = true
     const resume = job.resume || job.overflow
     // Then what the old part held: the stopped turn's input, then whatever waited. It
@@ -1020,6 +1040,14 @@ export function install(rt) {
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
   }
 
+  // Ends a step DS Bot takes over. Before a turn's first step an empty batch ends the
+  // turn as completed, where a reject ends it as blocked, which other listeners read as
+  // a failure. Later in a turn an empty batch would run another model step, and a turn
+  // carried through a steer cut keeps its reject, since a completed turn reads as answered.
+  const takeOverStep = (agent, payload) => (payload.step === 1 && rt.live.get(agent.id)?.carried !== true
+    ? { kind: 'enter', messages: [] }
+    : { kind: 'reject' })
+
   // Runs first: an earlier part hands its input on, a part past the hard line makes
   // room before the step (condensed in place, or it stops and goes on in a fresh
   // part), and the backend's own pre-step listener sees the wrapper.
@@ -1029,14 +1057,14 @@ export function install(rt) {
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
       await forward(past, payload.messages).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
     if (!rt.isBotSession(agent.id)) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
     if (job !== undefined) {
       job.carry.push(...payload.messages)
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
@@ -1048,6 +1076,7 @@ export function install(rt) {
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
+    if (!await canMakeRoom(agent, payload.messages)) return next()
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
@@ -1057,13 +1086,15 @@ export function install(rt) {
     const running = switches.get(agent.id)
     if (running !== undefined) {
       running.carry.push(...payload.messages)
-      return { kind: 'reject' }
+      return takeOverStep(agent, payload)
     }
-    const midTurn = payload.step > 1
     const entry = rt.liveOf(agent.id)
+    // A turn carried through a steer cut keeps its trigger and joined work, so
+    // its first step is already the middle of a turn for the folder check.
+    const midTurn = payload.step > 1 || entry.carried === true
     entry.switched = true
     startSwitch(agent, { resume: midTurn, carry: payload.messages, info: midTurn ? entry.info : undefined, joined: midTurn ? [...(entry.joined ?? [])] : undefined, ...options })
-    return { kind: 'reject' }
+    return takeOverStep(agent, payload)
   }
 
   // The folder a part should move to, when it is not the one the part was made in. A
@@ -1129,9 +1160,6 @@ export function install(rt) {
     await rt.load()
     const { agent } = payload
     if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || rescued.get(agent.id) === 'bare') return decided
-    // A provider may turn down one request for reasons of its own; a history that
-    // breaks every request fails the next turn as well.
-    if (failure.code === 'INVALID_REQUEST' && !STUCK_CODES.includes(lastTurnEnd(agent)?.data?.reason?.error?.code)) return decided
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     // The latest messages carried into a rescued part may be what breaks the request.
@@ -1143,7 +1171,7 @@ export function install(rt) {
     if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly()) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await canMakeRoom(agent)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -1155,6 +1183,7 @@ export function install(rt) {
   // past it.
   async function checkContext(agent) {
     if (switches.has(agent.id) || freshParts.has(agent.id) || checking.has(agent.id) || readOnly()) return
+    if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
@@ -1167,6 +1196,7 @@ export function install(rt) {
         if (condensed !== false) return
       }
       if (switches.has(agent.id)) return
+      if (!await canMakeRoom(agent)) return
       startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
     } finally {
       checking.delete(agent.id)
@@ -1223,13 +1253,14 @@ export function install(rt) {
   // Earlier parts of a Bot's own chat, newest page first, for the chat to show above
   // the current part as one conversation.
   const EARLIER_PAGE = 60
-  function displayItems(partId, events, session) {
+  function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
     const items = []
     // The turn/start still in effect. A steered or queued user message stays in
     // it; only another turn/start moves on. A later page does not repeat the
-    // turn/start from the page before, so seed that turn when the projection has it.
-    let turn = openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
+    // turn/start from the page before, so seed that turn when the projection has
+    // it — or when the caller walked the log back to it (no live session).
+    let turn = seedTurn ?? openTurnAt(ctx.get?.('sessionProjections'), session, events[0]?.seq)
     const stamp = (event, item) => {
       if (typeof event.seq === 'number' && Number.isInteger(event.seq)) item.seq = event.seq
       if (turn !== undefined) item.turn = turn
@@ -1273,6 +1304,7 @@ export function install(rt) {
         const text = textOf(event.data.content)
         const reply = readReply(text)
         if (reply?.questions !== undefined) stamp(event, { kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
+        else if (reply?.handoff !== undefined) stamp(event, { kind: 'answer', text: replyText(text), handoff: reply.handoff, time: event.time })
         else if (reply?.views !== undefined) stamp(event, { kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
@@ -1283,15 +1315,39 @@ export function install(rt) {
 
   async function partPage(parts, index, cursor) {
     const part = parts[index]
-    const agent = await rt.resolveAgent(part.sessionId)
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    // An archived earlier part may have no live agent left; its stored events
+    // still page fine, so resolve failure only drops the live-session cap.
+    const agent = await rt.resolveAgent(part.sessionId).catch(() => undefined)
     const page = await ctx.sessionController.page({
       address: { kind: 'session', sessionId: part.sessionId },
-      throughSeq: Number(agent.session.seq) - 1,
+      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: EARLIER_PAGE,
-    }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    }, signal)
     const events = page.records.map(record => record.event)
-    const items = displayItems(part.sessionId, events, agent.session)
+    let seedTurn
+    if (agent === undefined) {
+      // Without the live session's projection, rows on a page that does not
+      // hold its own turn/start would lose their turn; walk back for it.
+      let before = events[0]?.seq
+      while (Number.isInteger(before) && seedTurn === undefined) {
+        const back = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId: part.sessionId },
+          beforeSeq: before,
+          maxMessages: EARLIER_PAGE,
+        }, signal)
+        const starts = back.records.map(record => record.event).filter(event => event.type === 'turn/start')
+        if (starts.length > 0) {
+          const last = starts.at(-1).data?.turn
+          if (Number.isInteger(last)) seedTurn = last
+          break
+        }
+        if (!back.hasMore) break
+        before = back.records[0]?.event?.seq
+      }
+    }
+    const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
     const more = page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })

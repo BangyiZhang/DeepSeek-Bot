@@ -9,7 +9,7 @@
 
 [English](README.md) | 中文
 
-![版本](https://img.shields.io/badge/版本-v0.2_预览-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
+![版本](https://img.shields.io/badge/版本-v0.2_预览-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-4D6BFE) ![许可](https://img.shields.io/badge/许可-Apache_2.0-green)
 
 DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（简称 dsh）的 bot 插件，插件将 dsh 改造为 bot 形式。你可以与自己创建的 bot 交流、工作。
 
@@ -26,6 +26,10 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 - Linux（x64）：`DeepSeek-Bot-<版本>-linux-x86_64.AppImage` 通用于所有发行版——加上可执行权限后打开即可。它通过 FUSE 2 挂载，可能需要先安装（Ubuntu 24.04+ 用 `sudo apt install libfuse2t64`，Fedora 用 `sudo dnf install fuse-libs`，Arch 用 `sudo pacman -S fuse2`）。Ubuntu 24.04 及以后版本会限制 AppImage 需要的沙箱，AppImage 可能因此拒绝启动；Debian/Ubuntu 上的 `DeepSeek-Bot-<版本>-linux-amd64.deb` 没有这个问题，还会加菜单项。
 
 第一次打开时，App 会问数据和 Bot 的文件放在哪里，并可以从你的 dsh 复制 Bot 团队（只读取你的 dsh，不改它）。在 App 的设置里配好模型就能用。Windows 版和 Linux 的 AppImage 会自动更新；macOS 版和 Linux 的 deb 有新版本时会提示你下载。
+
+**从源码启动桌面应用（Windows）**
+
+安装 Node.js 22.19 或以上版本及 npm 后，在仓库目录用 PowerShell 运行 `.\start.ps1`。脚本自动准备并启动当前源码，Bot、聊天记录和模型配置持久保存在 `.ds-bot-local/`，重启后继续使用。见[源码启动说明](app/README.md#run-from-source-windows)。
 
 **作为 dsh 插件**
 
@@ -46,8 +50,8 @@ DS Bot 0.2.1 及更早的版本在 DSH Desktop 0.2.1-rc.2 及以后的版本里�
 需要 Node.js `22.19` 以上和 pnpm。
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.2 web
+npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.4 web
 ```
 
 **Docker（NAS、Linux 服务器）**
@@ -104,11 +108,15 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 ### 实验性 Pi Durable 集成
 
-此 fork 已接入默认关闭的 Pi Durable 1.4 任务运行时。模型和工具仍由 DSH 执行，Pi 保存工作阶段及恢复状态。在“设置 → 持久任务”中开启后，直接在 Bot 的私聊里派活，Bot 可以创建分步任务，在对话中显示已保存的进度，完成后自动回到这里报告结果。执行会话沿用 Bot 当前的模型、工作目录、说明及受支持的权限预设。本体验版暂不支持群聊、团队专用工具、Bot 绑定能力以及会话专用或自定义权限；遇到这些情况会明确说明限制，不会静默更改执行范围。设置页仍可手动创建任务、查看保存的结果。详见[集成设计与隔离测试](docs/plans/2026-10-25-pi-durable-integration.md)。
+此 fork 已接入默认关闭的 Pi Durable 1.4 任务运行时：Bot 管理任务和上下文，Pi 保存进度并负责恢复，DSH 执行模型和工具。在“设置 → 任务 → 保存的进度”中开启后，直接在 Bot 私聊里派活。Bot 自行判断是否值得保存进度；简短检查和普通问答留在聊天里直接完成。持久任务会在对话中展示步骤、进度及问答历史。执行会话沿用 Bot 的模型、工作目录、说明、受支持的权限预设和绑定能力；需要你确认时，可在聊天或卡片中回答，继续同一个任务。群聊、团队管理工具以及会话专用或自定义权限仍不支持；执行范围变化时需先核对。设置页也可手动创建任务、查看保存的结果。详见[集成设计与隔离测试](docs/plans/2026-10-25-pi-durable-integration.md)。
 
 在该 Bot 的私聊中说“停止”，即可取消当前任务；同时有多个任务时，Bot 会先询问要停哪个。确认执行退出后才显示“已取消”，已经完成的操作不会撤销；无法确认停止时会保留待核对提示。
 
 在该 Bot 私聊说“先暂停”，当前已开始的步骤完成并保存后，会在下一步前暂停；说“继续”就恢复原任务，沿用保存的进度。暂停状态跨应用重启保留，不会强行冻结运行中的工具。已完成、已取消或需核对的工作不会自动重做。
+
+### Office 文件
+
+Bot 可以处理 Office 文档：创建和编辑 .docx、.pptx、.xlsx；按稳定 id 读文档结构；检查会让 Office 拒开的包缺陷；定点编辑（批注、修订、域、表格单元格）；幻灯片重排与复制；列出工作簿错误；渲染成图片并按拼图检查。桌面应用已全部带上；在 DSH Desktop 里用 DSH 自己的 Office 运行时加 DS Bot 的命令；在 DSH Web 里检查、校验、编辑类命令可用，从头建文件和渲染页面需要桌面应用或 DSH Desktop。
 
 ## 数据
 

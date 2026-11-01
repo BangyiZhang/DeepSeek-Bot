@@ -9,7 +9,7 @@
 
 English | [中文](README.zh.md)
 
-![version](https://img.shields.io/badge/version-v0.2_preview-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
+![version](https://img.shields.io/badge/version-v0.2_preview-blue) ![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-4D6BFE) ![license](https://img.shields.io/badge/license-Apache_2.0-green)
 
 DS Bot is a bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It turns DSH into bots. You create your own bots, then talk and work with them.
 
@@ -26,6 +26,10 @@ The desktop app brings its own DSH, so you don't need to install DSH first. Down
 - Linux (x64): `DeepSeek-Bot-<version>-linux-x86_64.AppImage` runs on every distribution — make it executable and open it. It mounts through FUSE 2, which you may need to install first (`sudo apt install libfuse2t64` on Ubuntu 24.04+, `sudo dnf install fuse-libs` on Fedora, `sudo pacman -S fuse2` on Arch). On Ubuntu 24.04 and later an AppImage can refuse to start (Ubuntu restricts the sandbox it needs); the `DeepSeek-Bot-<version>-linux-amd64.deb` on Debian/Ubuntu does not have this problem and adds a menu entry.
 
 At the first start the app asks where to keep its data and the Bots' files, and offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. The Windows app and the Linux AppImage update themselves; the macOS app and the Linux deb tell you when a new version is ready to download.
+
+**Desktop app from source (Windows)**
+
+With Node.js 22.19 or later and npm installed, run `.\start.ps1` in PowerShell from this checkout. It prepares and launches the current source, keeping your Bots, chats and model settings in `.ds-bot-local/` between runs. See [source startup](app/README.md#run-from-source-windows).
 
 **As a plugin in DSH**
 
@@ -46,8 +50,8 @@ DS Bot 0.2.1 and earlier cannot update themselves in DSH Desktop 0.2.1-rc.2 or l
 Needs Node.js `22.19` or later, and pnpm.
 
 ```sh
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add ds-bot
-npx @deepseek-ai/dsh@0.2.1-rc.2 web
+npx @deepseek-ai/dsh@0.2.1-rc.4 plugin --profile web add ds-bot
+npx @deepseek-ai/dsh@0.2.1-rc.4 web
 ```
 
 **Docker (NAS, Linux server)**
@@ -104,11 +108,15 @@ In **Settings** → **Usage**, you can see token usage by time, by bot and by mo
 
 ### Experimental Pi Durable integration
 
-This fork includes an opt-in Pi Durable 1.4 task runtime alongside DSH. DSH still runs the models and tools; Pi persists workflow stages and recovery state. Enable it in Settings → Durable tasks, then give a Bot work in its own chat. The Bot can create a staged task, show saved progress in the conversation, and report the result there automatically. Workers inherit the Bot's current model, working folder, instructions and supported permission preset. Group chats, team-only tools, Bot-attached capabilities and session-only/custom permissions are not supported by this preview; the Bot reports that limitation instead of silently changing its execution scope. Settings also retains manual creation and saved results. See the [integration design and isolated tests](docs/plans/2026-10-25-pi-durable-integration.md).
+This fork includes an opt-in Pi Durable 1.4 task runtime alongside DSH. Bot owns the task and its context, Pi saves progress and recovery state, and DSH runs the models and tools. Enable it in Settings → Tasks → Saved progress, then give a Bot work in its own chat. The Bot decides whether saving progress is useful; short checks and ordinary questions stay in the chat. Durable work shows its steps, progress and question/answer history there. Workers inherit the Bot's model, folder, instructions, supported permission preset and attached capabilities. When a task needs your answer, reply in the chat or its card to continue the same task. Group chats, team-management tools and session-only/custom permissions remain unsupported; changed execution scope requires review. Settings also supports manual creation and viewing saved results. See the [integration design and isolated tests](docs/plans/2026-10-25-pi-durable-integration.md).
 
 Say “stop” in that Bot's chat to cancel its current task. If more than one task is active, the Bot asks which one. The task is marked cancelled only after its execution stops; completed actions are not rolled back, and an unconfirmed stop stays visible for review.
 
 Say “pause for now” to save the current admitted step and wait before the next one. Say “continue” to resume the same task with its saved results. Pauses survive app restarts; running tools are allowed to finish rather than forcibly frozen. Completed, cancelled, or uncertain work is never automatically replayed.
+
+### Office files
+
+Bots work with Office documents. They can create and edit .docx, .pptx and .xlsx, read a document's structure with stable ids, check a package for the defects Office would refuse, make targeted edits (comments, tracked changes, fields, table cells), reorder or duplicate slides, list workbook errors, and review rendered pages on a contact sheet. The desktop app includes everything needed; in DSH Desktop Bots use DSH's Office runtime plus DS Bot's commands; in DSH Web the inspect, check and edit commands work, while creating files from scratch and rendering pages need the desktop app or DSH Desktop.
 
 ## Data
 

@@ -33,7 +33,9 @@
     "index.js",
     "src/host/",
     "src/shared/",
+    "src/office/",
     "client.js",
+    "office.js",
     "web-search.js",
     "cordis.patch.yml",
     "README.md",
@@ -50,6 +52,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-web": "*"
   },
@@ -62,11 +65,13 @@
     }
   },
   "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
     "esbuild": "0.28.2"
   },
   "dependencies": {
     "@earendil-works/chord": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-durable": "1.4.0"
+    "@earendil-works/pi-durable": "1.4.0",
+    "deep-view": "0.1.0"
   }
 }

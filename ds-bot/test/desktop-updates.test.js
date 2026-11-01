@@ -5,7 +5,7 @@ import { TEAM_TOOLS } from '../src/host/constants.js'
 
 function runtime() {
   const bot = { id: 'dev' }
-  return { load: async () => {}, readOnly: () => undefined, botOf: id => id === 'dev' ? bot : undefined,
+  return { teamTools: [], load: async () => {}, readOnly: () => undefined, botOf: id => id === 'dev' ? bot : undefined,
     selfOf: id => id === 'private' ? 'dev' : undefined, chatOf: () => 'private', groupOwners: new Map(), live: new Map(),
     workView: () => ({}), roomProgress: new Map(), roomInbox: new Map(), durableEndpoint: async () => ({ jobs: [] }),
     async *eventsBackwards() {}, deliver: async () => {} }
@@ -64,9 +64,10 @@ test('packaged-only tool registration uses the shell bridge and stable request i
   install(rt, {})
   assert.equal(registered.size, 0)
   install(rt, { DS_BOT_APP: '1', DS_BOT_LOCAL_UPDATES: '1' })
-  assert.deepEqual([...registered.keys()], ['request_desktop_update', 'get_desktop_update'])
+  assert.equal(registered.size, 0)
+  assert.deepEqual(rt.teamTools.map(tool => tool.name), ['request_desktop_update', 'get_desktop_update'])
   services.dsBotDesktopUpdateBridge = { request: async (op, body) => { requests.push({ op, body }); return { phase: 'queued' } } }
-  const exec = { agent: { id: 'private' }, callId: 'same-call' }, tool = registered.get('request_desktop_update')
+  const exec = { agent: { id: 'private' }, callId: 'same-call' }, tool = rt.teamTools.find(tool => tool.name === 'request_desktop_update')
   await tool.execute({ appPath: '/candidate.app', evidencePath: '/report.json' }, exec)
   await tool.execute({ appPath: '/candidate.app', evidencePath: '/report.json' }, exec)
   assert.equal(requests[0].body.requestKey, requests[1].body.requestKey)

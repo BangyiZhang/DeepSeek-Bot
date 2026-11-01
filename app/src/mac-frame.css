@@ -6,7 +6,7 @@ html[data-ds-bot-mac-titlebar] {
 
 /* Keep every native button inside the rail, while retaining the shell's right column. */
 html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [class*="_frame"]:has(> [class*="_sidebarCol"]) {
-  grid-template-columns: var(--ds-bot-mac-columns) !important;
+  grid-template-columns: var(--ds-bot-mac-columns, 0px minmax(0, 1fr) 0px) !important;
 }
 html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) [data-slot="sidebar"] > [class*="_collapsed"] {
   width: 100% !important;
@@ -120,4 +120,34 @@ html[data-ds-bot-mac-titlebar] [data-composer-card] {
   border-color: var(--bt-line-2) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* The upstream resizable column is portalled outside the DSH sidebar. */
+html[data-ds-bot-mac-titlebar] .bt-leftcol {
+  background: var(--bt-sidebar);
+  border-right: 1px solid var(--bt-line);
+}
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) .bt-leftcol[data-left=rail] {
+  padding-top: 64px;
+}
+html[data-ds-bot-mac-titlebar] .bt-leftcol :is(.bt-round,.bt-account,.bt-connect) {
+  background: var(--bt-card);
+  border: 1px solid var(--bt-line);
+  box-shadow: none;
+}
+html[data-ds-bot-mac-titlebar] .bt-leftcol :is(.bt-round,.bt-account,.bt-connect):hover {
+  background: var(--bt-hover);
+}
+html[data-ds-bot-mac-titlebar] .bt-leftcol[data-left=rail] :is(.bt-round,.bt-account) {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+html[data-ds-bot-mac-titlebar]:not([data-fullscreen]) .bt-title-toggle {
+  left: 110px;
+  top: 12px;
+}
+
+html[data-ds-bot-mac-titlebar]:has(.bt-leftcol,.bt-title-toggle) [class*="_sidebarCol"] {
+  border-right: 0;
 }

@@ -52,10 +52,15 @@ function macSidebar() {
     const sync = () => {
       const columns = frame.style.gridTemplateColumns
       if (!columns) return
-      const rail = columns.replace(/^56px(?=\s|$)/, 'var(--ds-bot-mac-rail-width)')
+      const botColumn = document.querySelector('.bt-leftcol,.bt-title-toggle') !== null
+      const rail = columns.replace(/^[\d.]+px(?=\s|$)/, left => botColumn ? '0px' : left === '56px' ? 'var(--ds-bot-mac-rail-width)' : left)
       if (frame.style.getPropertyValue('--ds-bot-mac-columns') !== rail) frame.style.setProperty('--ds-bot-mac-columns', rail)
     }
     new MutationObserver(sync).observe(frame, { attributes: true, attributeFilter: ['style'] })
+    // The Bot column owns its track; Agent mode returns to the native rail.
+    new MutationObserver(records => {
+      if (records.some(record => [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1 && node.matches('.bt-leftcol,.bt-title-toggle')))) sync()
+    }).observe(document.body, { childList: true })
     sync()
     return true
   }

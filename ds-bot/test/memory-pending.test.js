@@ -27,11 +27,12 @@ const TEAM = {
   questions: {},
 }
 
+let rt
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')) } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
-  const rt = createRuntime(ctx, { home })
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId } })
+  rt = createRuntime(ctx, { home })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
   const read = (...path) => readFileSync(join(home, 'memory', ...path), 'utf8')
   const journal = () => read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))
   const stop = async ({ keep = false } = {}) => {

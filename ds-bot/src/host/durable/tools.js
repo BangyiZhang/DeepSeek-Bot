@@ -2,7 +2,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from '../tools.js'
 
 export function install(rt) {
-  const register = tool => rt.ctx.tools.register(defineTool({ ...tool, output }))
+  const register = tool => rt.teamTools.push(defineTool({ ...tool, output }))
   register({
     name: 'answer_durable_task',
     description: 'Record the direct user answer to an open question from this Bot\'s durable task. Continue the same saved task, never create a replacement or do the work in this chat. Use only the actual user answer; do not infer approval from an unrelated message, silence, or a task report. This records clarification, not permission to bypass DSH approval or change scope. Read the waiting question from your context or get_durable_task. Ask which one if ambiguous.',

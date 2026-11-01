@@ -9,6 +9,9 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
+import { appControl, inspectorPort } from './app-control.mjs'
+
+let control
 const [executable, source, mode] = process.argv.slice(2)
 const mac = process.platform === 'darwin'
 // An AppImage updates itself, as on Windows; any other Linux executable (a deb's) only hears
@@ -56,9 +59,8 @@ const server = createServer((request, response) => {
 await new Promise((done) => { server.listen(0, '127.0.0.1', done) })
 const feed = `http://127.0.0.1:${String(server.address().port)}/`
 
-// Closes the window from inside the page, as check-packed does; the app then quits as it does
-// when a user closes it. The page goes away with the window, so the call gets no answer.
-async function closeWindow(port, waitForReady = false) {
+// Wait for the page when requested, then quit through Electron's application lifecycle.
+async function quitApp(port, waitForReady = false) {
   // Until the Host is ready the window shows a note of its own.
   const find = async () => {
     const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
@@ -95,7 +97,8 @@ async function closeWindow(port, waitForReady = false) {
     })
     if (!ready) throw new Error('the app window did not finish booting')
   }
-  socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'window.close()' } }))
+  socket.close()
+  await control.quit()
 }
 
 // taskkill /T takes the Host and Electron's helpers along; a unix kill ends the tree's root,
@@ -112,13 +115,15 @@ try {
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
   Object.assign(env, { DS_BOT_HOME: join(work, 'home'), DS_BOT_SHELL_DATA: join(work, 'shell'), DS_BOT_UPDATE_URL: feed })
   const port = 9300 + Math.floor(Math.random() * 600)
-  app = spawn(resolve(executable), [`--remote-debugging-port=${String(port)}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const mainPort = await inspectorPort()
+  app = spawn(resolve(executable), [`--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${mainPort}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   const exited = new Promise((done) => { app.once('exit', (code) => { done(code) }) })
   let output = ''
   for (const stream of [app.stdout, app.stderr]) {
     stream.setEncoding('utf8')
     stream.on('data', (chunk) => { output += chunk; process.stdout.write(chunk) })
   }
+  control = await appControl(mainPort)
   const updateLine = `DeepSeek Bot: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
   const end = Date.now() + (releasePage ? 3 : 5) * 60_000
   while (!output.includes(updateLine)) {
@@ -135,21 +140,21 @@ try {
   if (releasePage && !served.includes('/')) throw new Error('the release feed was not requested')
   console.log(`check-update: ${updateLine}; the feed served ${served.join(', ')}`)
   if (releasePage) {
-    await closeWindow(port, true)
+    await quitApp(port, true)
     const code = await Promise.race([exited, sleep(60_000).then(() => 'timeout')])
-    if (code === 'timeout') throw new Error('the app did not exit after its window closed')
+    if (code === 'timeout') throw new Error('the app did not exit after application quit')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}`)
-    console.log('check-update: the app closed without installing')
+    console.log('check-update: the app quit without installing')
   } else if (mode === '--kill') {
     killApp()
     await exited
     console.log('check-update: ended the app, so nothing was installed')
   } else {
-    await closeWindow(port)
+    await quitApp(port)
     const code = await Promise.race([exited, sleep(60_000).then(() => 'timeout')])
-    if (code === 'timeout') throw new Error('the app did not exit after its window closed')
+    if (code === 'timeout') throw new Error('the app did not exit after application quit')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}, so it does not install the update`)
-    console.log('check-update: the app closed; its installer runs now')
+    console.log('check-update: the app quit; its installer runs now')
   }
   console.log('check-update: passed')
 } catch (error) {
@@ -157,6 +162,7 @@ try {
   console.error(`check-update: FAILED: ${error instanceof Error ? error.message : String(error)}`)
   if (app?.exitCode === null) killApp()
 }
+control?.close()
 server.close()
 await sleep(500)
 rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 })

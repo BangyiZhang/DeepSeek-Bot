@@ -1,5 +1,5 @@
 // Dev check: run the app on throwaway folders, save a screenshot of its window, print what the page shows,
-// then close the window the way a user does and wait until the app has exited.
+// then request application quit and wait until the app has exited.
 // Usage: node scripts/shot.mjs <out.png> [seconds to wait before the screenshot]
 // Set DS_BOT_HOME and DS_BOT_SHELL_DATA to throwaway folders, plus the model variables for the Host
 // (for the ds-bot mock model: DEEPSEEK_BASE_URL=http://127.0.0.1:<port>/v1 and DEEPSEEK_API_KEY=mock-key).
@@ -10,6 +10,10 @@ import { dirname, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
+import { appControl, inspectorPort } from './app-control.mjs'
+
+const mainPort = await inspectorPort()
+let control
 const [out = 'shot.png', wait = '20'] = process.argv.slice(2)
 if (!process.env.DS_BOT_HOME || !process.env.DS_BOT_SHELL_DATA) {
   console.error('shot: set DS_BOT_HOME and DS_BOT_SHELL_DATA to throwaway folders')
@@ -20,7 +24,7 @@ const electron = createRequire(import.meta.url)('electron')
 const port = 9300 + Math.floor(Math.random() * 600)
 // A terminal inside an Electron-based editor may set ELECTRON_RUN_AS_NODE, which turns the app into plain Node.
 const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
-const child = spawn(electron, [root, `--remote-debugging-port=${String(port)}`], { stdio: 'inherit', env })
+const child = spawn(electron, [root, `--remote-debugging-port=${String(port)}`, `--inspect=127.0.0.1:${mainPort}`], { stdio: 'inherit', env })
 const exited = new Promise((done) => { child.once('exit', (code, signal) => { done({ code, signal }) }) })
 
 async function appPage(deadline) {
@@ -62,6 +66,7 @@ function devtools(url) {
 }
 
 try {
+  control = await appControl(mainPort)
   const page = await appPage(Date.now() + 60_000)
   const cdp = devtools(page.webSocketDebuggerUrl)
   await cdp.opened
@@ -73,16 +78,17 @@ try {
   })
   console.log(`shot: saved ${resolve(out)}`)
   console.log(`shot: page ${String(result.value)}`)
-  // The page goes away with the window, so this call gets no answer.
-  void cdp.call('Runtime.evaluate', { expression: 'window.close()' }).catch(() => undefined)
+  await control.quit()
+  cdp.close()
 } catch (error) {
   console.error(error)
+  control?.close()
   child.kill()
   process.exitCode = 1
 }
 const outcome = await Promise.race([exited, sleep(40_000).then(() => undefined)])
 if (outcome === undefined) {
-  console.error('shot: the app did not exit after its window closed')
+  console.error('shot: the app did not exit after application quit')
   child.kill()
   process.exitCode = 1
 } else {

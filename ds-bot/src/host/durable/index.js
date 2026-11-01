@@ -47,6 +47,7 @@ export function install(rt) {
   let failure
   let changes = Promise.resolve()
   const workerGuards = new WeakSet()
+  const workerBindings = new WeakSet()
   const workerScopes = new Map()
   const taskWork = {}
   const closedWorkers = new Set()
@@ -172,6 +173,20 @@ export function install(rt) {
     const allowed = new Set(execution.allowedTools)
     const sourceTools = new Set(callableTools(source))
     if ([...allowed].some(name => !sourceTools.has(name))) throw new Error('The originating Bot\'s available tools changed; review the task before continuing')
+    if (execution.botManaged && !workerBindings.has(agent)) {
+      const installed = []
+      try {
+        for (const def of rt.teamTools) {
+          if (!allowed.has(def.name) || (!taskReads.has(def.name) && def.name !== 'ask_user') || ctx.tools.get(def.name, agent)) continue
+          if (typeof agent.ctx?.tools?.register !== 'function') throw new Error('The Bot task context tools cannot be restored')
+          installed.push(agent.ctx.tools.register(def))
+        }
+        workerBindings.add(agent)
+      } catch (error) {
+        for (const dispose of installed.reverse()) dispose?.()
+        throw error
+      }
+    }
     const visible = callableTools(agent)
     const deny = visible.filter(name => workerDenied.has(name) || (name === 'ask_user' && !allowed.has(name)) || (!execution.botManaged && (taskReads.has(name) || name === 'ask_user')))
     if (deny.length) {
@@ -572,7 +587,7 @@ export function install(rt) {
     await runtime?.close()
   })()
   ctx.effect(() => {
-    void rt.load().then(() => enabled() && rt.readOnly() === undefined ? open() : undefined).catch(() => {
+    void Promise.resolve().then(() => rt.load()).then(() => enabled() && rt.readOnly() === undefined ? open() : undefined).catch(() => {
       if (stopping) return
       failure = 'Durable tasks could not start; inspect the Host diagnostics before retrying'
       rt.warn('ds-bot: durable tasks could not start')
