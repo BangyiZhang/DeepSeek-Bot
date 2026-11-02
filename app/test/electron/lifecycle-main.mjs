@@ -8,6 +8,7 @@ import net from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createShell } from '../../src/shell.mjs'
+import { windowLifecycle } from '../../src/window-lifecycle.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const assets = join(here, '..', '..', 'assets')
@@ -64,6 +65,12 @@ const shell = createShell({
   notice: { marker: () => join(app.getPath('userData'), 'tray-close-acknowledged'), show: async () => ({ response: 0 }) },
 })
 
+const macLifecycle = process.platform === 'darwin' ? windowLifecycle({
+  app, platform: process.platform, focusWindow: () => shell.open(), retainWithoutWindows: true,
+  hideWindow: target => shell.hide(target),
+  allowClose: () => shell.isQuitting() || shell.isSessionEnding(),
+}) : undefined
+
 // The app is on its way out: the window may close for good. The app of the real desktop
 // does the same in its before-quit.
 app.on('before-quit', () => { shell.beginQuit() })
@@ -76,7 +83,8 @@ function createWindow() {
     win.show()
   })
   win.on('closed', () => { if (mainWindow === win) mainWindow = undefined })
-  shell.watch(win)
+  macLifecycle?.bind(win)
+  shell.watch(win, { closeWindow: process.platform !== 'darwin' })
   return win
 }
 
@@ -84,6 +92,7 @@ const answer = (payload) => { process.stdout.write(`${JSON.stringify(payload)}\n
 
 const state = () => ({
   visible: mainWindow === undefined ? null : mainWindow.isVisible(),
+  minimized: mainWindow === undefined ? null : mainWindow.isMinimized(),
   destroyed: mainWindow === undefined ? null : mainWindow.isDestroyed(),
   url: mainWindow === undefined ? null : mainWindow.webContents.getURL(),
   title: mainWindow === undefined ? null : mainWindow.webContents.getTitle(),
@@ -97,6 +106,7 @@ async function handle(command) {
   if (command === 'close') mainWindow?.close()
   if (command === 'destroy') mainWindow?.destroy()
   if (command === 'open') shell.open()
+  if (command === 'activate') app.emit('activate')
   if (command === 'quit') shell.quit()
   await new Promise(resolve => setTimeout(resolve, 400))
   return state()

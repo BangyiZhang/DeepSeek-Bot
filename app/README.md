@@ -133,13 +133,13 @@ The script serves a releases list with one release of that version that has this
 
 The app builds a system tray icon on Windows, macOS and Linux (`src/shell.mjs`, `src/tray.mjs`); the icon is the app's own whale (`assets/tray.*`, drawn by `npm run icon`). The menu holds "Open DeepSeek Bot" and "Quit DeepSeek Bot". Whether the icon is visible belongs to the desktop: on Linux, GNOME and KDE draw it only with a tray extension.
 
-Closing the window backgrounds it: on macOS it minimizes to the Dock; on Windows and Linux it hides in the tray. The Host and the Bots go on working, and the Bot browsers' tabs stay. Starting the app again brings the window back, because the second copy hands itself to the one that runs. When the window is gone for good, the tray's Open builds a new one that talks to the Host that runs: it loads the Host's plain address, and the cookie of the first load still carries the session, so neither the launch token nor a second Host is needed.
+Closing the window hides it while the app stays in the background. On macOS, no minimized window is left in the Dock; clicking the app's Dock icon or choosing Open from the menu bar brings the same window back. The Host and the Bots go on working, and the Bot browsers' tabs stay. Starting the app again brings the window back, because the second copy hands itself to the one that runs. When the window is gone for good, the tray's Open builds a new one that talks to the Host that runs: it loads the Host's plain address, and the cookie of the first load still carries the session, so neither the launch token nor a second Host is needed.
 
 An ordinary close keeps the app running; the tray's Quit ends it. On Windows and Linux the first close asks once, because the app stays in the tray; the answer is kept in the app's own data (the `tray-close-acknowledged` file in its user data folder). A close during the first start's import or during a data move cancels that work, as it did before. An update that restarts the app, a data move that restarts it, a failed start and the end of the operating system's session close the window for good.
 
 The application menu of macOS retains Quit and ⌘Q, whether or not the tray can be built. These use the same graceful Host shutdown as the tray's Quit.
 
-Without a tray (some Linux desktops have none), closing the window asks whether the app should end, and minimizes it when the answer is no: the window stays reachable, and the app does not vanish. This is the one exceptional path, and it is the only place where the app asks before it ends.
+Without a tray on Windows or Linux, closing the window asks whether the app should end, and minimizes it when the answer is no: the window stays reachable, and the app does not vanish. On macOS the window still hides, because the Dock restores it and the application menu provides Quit.
 
 The launch URL of the Host is good for one use only. When the first load never came through (the window died while it loaded), no window carries the token again: the new window loads the Host's plain address, and the Host refuses it when the cookie is not there. Starting the app again then gives a new token.
 
@@ -178,4 +178,4 @@ The Host installs plugins with the app's own pnpm (`node_modules/pnpm`).
 
 Some files adapt code from DSH Desktop (MIT); see [NOTICE](../NOTICE).
 
-On macOS, closing the window minimizes it to the Dock and keeps the same window, Host and tasks running. Clicking the Dock icon restores it. Cmd+Q and the application menu’s Quit still shut down the Host and exit. The upstream tray controls remain available; on Windows and Linux, closing the window follows the upstream background/tray behavior.
+On macOS, closing the window hides it and keeps the same window, Host and tasks running. A fullscreen window leaves fullscreen before hiding. Clicking the Dock icon restores it. Cmd+Q and the application menu’s Quit still shut down the Host and exit. The upstream tray controls remain available; on Windows and Linux, closing the window follows the upstream background/tray behavior.

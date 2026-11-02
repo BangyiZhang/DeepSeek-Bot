@@ -632,7 +632,7 @@ try {
   await windowState('win.close()')
   await sleep(4000)
   if (app.exitCode !== null) throw new Error('the app ended with its window')
-  const closed = process.platform === 'darwin' ? 'win.isMinimized()' : '!win.isVisible()'
+  const closed = '!win.isVisible() && !win.isMinimized()'
   if (await windowState(`win !== undefined && !win.isDestroyed() && ${closed}`) !== true) throw new Error('the window did not move to the background')
   await hostAlive()
   console.log('check-packed: the window is in the background and the Host goes on')

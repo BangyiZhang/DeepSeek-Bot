@@ -100,6 +100,7 @@ try {
   const closed = await ask('close')
   if (closed.destroyed !== false) fail('the window was destroyed instead of hidden')
   if (closed.visible !== false) fail('the window is still on the screen')
+  if (closed.minimized !== false) fail('the window was minimized instead of hidden')
   if (closed.quitting !== false) fail('the app ended with its window')
   console.log('check-lifecycle: the close hides the window and the app goes on')
 
@@ -107,6 +108,14 @@ try {
   if (opened.visible !== true) fail('the tray did not open the window')
   if (opened.destroyed !== false) fail('the window was destroyed')
   console.log('check-lifecycle: the tray opens the window again')
+
+  if (process.platform === 'darwin') {
+    await ask('close')
+    const activated = await ask('activate')
+    if (activated.visible !== true || activated.minimized !== false || activated.destroyed !== false) fail('Dock activation did not reveal the hidden window')
+    if (activated.hosts !== 1) fail('Dock activation started a second Host')
+    console.log('check-lifecycle: Dock activation reveals the hidden window without another Host')
+  }
 
   const gone = await ask('destroy')
   if (gone.destroyed !== null) fail('the window is still there')

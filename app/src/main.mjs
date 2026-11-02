@@ -101,7 +101,7 @@ const botViews = new BotViews({
 })
 const cookieImports = new CookieImports()
 
-// Native Mac closes minimize the window; other platforms use the tray's background mode.
+// Native Mac closes hide the same window, with the Dock available even without a tray.
 const shell = createShell({
   electron: { app, Menu, Tray, powerMonitor },
   platform: process.platform,
@@ -127,6 +127,7 @@ const shell = createShell({
 })
 const macLifecycle = process.platform === 'darwin' ? windowLifecycle({
   app, platform: process.platform, focusWindow: () => shell.open(), retainWithoutWindows: true,
+  hideWindow: target => shell.hide(target),
   allowClose: () => shell.isQuitting() || shell.isSessionEnding(),
 }) : undefined
 // The tray icon goes away with the app, and a late answer to the close notice hides nothing.

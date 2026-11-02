@@ -2,8 +2,8 @@
 // carries a Quit of its own. It is the only case in which the menu has one.
 import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
-import { state } from './helpers/fake-electron.mjs'
-import { startApp, waitFor } from './helpers/app-harness.mjs'
+import { app, state } from './helpers/fake-electron.mjs'
+import { startApp, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -15,6 +15,19 @@ before(async () => {
   // The desktop has no tray.
   state.trayFails = true
   await startApp({ packaged: false })
+})
+
+test('macOS without a tray still hides the window and restores it through the Dock', async () => {
+  await waitFor(() => state.windows.length > 0, 'open the window')
+  const win = window()
+  win.show()
+  win.close()
+  assert.equal(win.isVisible(), false)
+  assert.equal(win.isMinimized(), false)
+  assert.equal(state.quits, 0)
+  app.emit('activate')
+  assert.equal(win.isVisible(), true)
+  assert.equal(window(), win)
 })
 
 test('the application menu of macOS carries a Quit when there is no tray', async () => {

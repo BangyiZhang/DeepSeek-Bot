@@ -220,6 +220,7 @@ export function createShell(options) {
     install,
     watch,
     close,
+    hide,
     open,
     quit,
     beginQuit,

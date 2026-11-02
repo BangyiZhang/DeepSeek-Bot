@@ -3,7 +3,7 @@
 // runs. The Electron parts are test doubles: no display, no DSH, no data of the user.
 import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
-import { state } from './helpers/fake-electron.mjs'
+import { app, state } from './helpers/fake-electron.mjs'
 import { state as hostState } from './helpers/fake-host-process.mjs'
 import { startApp, trayMenu, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
@@ -41,7 +41,8 @@ test('a window that is gone for good is built anew and talks to the same Host', 
 test('closing the window backgrounds it; the app goes on', async () => {
   const win = window()
   win.close()
-  await waitFor(() => process.platform === 'darwin' ? win.isMinimized() : !win.visible, 'background the window')
+  await waitFor(() => !win.visible, 'hide the window')
+  assert.equal(win.isMinimized(), false, 'no minimized window is left in the Dock')
   assert.equal(win.isDestroyed(), false, 'the window is there')
   assert.equal(state.quits, 0, 'the app goes on')
   assert.equal(hostState.stops, 0, 'the Host goes on')
@@ -53,6 +54,22 @@ test('the tray opens the window again', async () => {
   trayMenu()[0].click()
   await waitFor(() => win.visible === true, 'show the window')
   assert.equal(win.focused > 0, true, 'the window has the focus')
+})
+
+test('macOS close leaves fullscreen and Dock activation restores the same window', { skip: process.platform !== 'darwin' }, async () => {
+  const win = window()
+  win.fullScreen = true
+  win.close()
+  await waitFor(() => !win.visible, 'hide the fullscreen window')
+  assert.equal(win.isFullScreen(), false)
+  assert.equal(win.isMinimized(), false)
+  assert.equal(hostState.stops, 0)
+  const count = state.windows.length
+  app.emit('activate')
+  await waitFor(() => win.visible, 'restore the window from the Dock')
+  assert.equal(window(), win)
+  assert.equal(state.windows.length, count)
+  assert.equal(hostState.starts, 1)
 })
 
 test('the tray quit ends the app and stops the Host', async () => {
