@@ -41,8 +41,8 @@ export async function installJob(file, options = {}) {
   const timeout = options.timeout ?? 120000
   let job = await json(file)
   if (job.schema !== 1 || !/^[a-f0-9-]{36}$/u.test(job.id) || !isAbsolute(job.target) || !job.target.endsWith('.app')
-    || job.stage !== join(dirname(job.target), `.DeepSeek-Bot-stage-${job.id}.app`)
-    || job.backup !== join(dirname(job.target), `.DeepSeek-Bot-backup-${job.id}.app`)
+    || job.stage !== join(dirname(job.target), `.DS-Bot-stage-${job.id}.app`)
+    || job.backup !== join(dirname(job.target), `.DS-Bot-backup-${job.id}.app`)
     || ![job.executable, job.oldExecutable].every(name => typeof name === 'string' && name && name === basename(name))
     || ![job.oldHash, job.newHash].every(hash => /^[a-f0-9]{64}$/u.test(hash))
     || !Number.isSafeInteger(job.oldPid) || job.oldPid <= 1) throw new Error('Invalid installer job')

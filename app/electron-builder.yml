@@ -113,4 +113,4 @@ deb:
 publish:
   provider: github
   owner: BangyiZhang
-  repo: DeepSeek-Bot
+  repo: DeepSeek-Bot  # the fork keeps its legacy repository name

@@ -29,7 +29,7 @@ Automated tests and a browser bundle build do not prove these host behaviors. Cl
 
 ## Reporting issues
 
-Include the DSH or DeepSeek Bot version, operating system, installation method, relevant configuration, reproduction steps, expected behavior, and observed behavior. Share logs or screenshots only after removing secrets and private conversation content. Do not assume the repository's example URLs identify a published project or support channel.
+Include the DSH or DS Bot version, operating system, installation method, relevant configuration, reproduction steps, expected behavior, and observed behavior. Share logs or screenshots only after removing secrets and private conversation content. Do not assume the repository's example URLs identify a published project or support channel.
 
 ## Release changes
 

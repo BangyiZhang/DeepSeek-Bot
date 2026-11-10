@@ -41,7 +41,7 @@ export function createLocalUpdates({ root, target, probe, quit, launchEnv = {}, 
     await mkdir(folder, { mode: 0o700 })
     const job = { schema: 1, id, requestKey: body.requestKey, origin: body.origin, phase: 'queued', createdAt: Date.now(),
       target: old.path, source: next.path, oldHash: old.hash, newHash: next.hash, executable: next.executable, oldExecutable: old.executable, version: next.version,
-      stage: join(dirname(old.path), `.DeepSeek-Bot-stage-${id}.app`), backup: join(dirname(old.path), `.DeepSeek-Bot-backup-${id}.app`),
+      stage: join(dirname(old.path), `.DS-Bot-stage-${id}.app`), backup: join(dirname(old.path), `.DS-Bot-backup-${id}.app`),
       oldPid: process.pid, launchEnv: launchEnvironment(launchEnv), evidence: checked }
     await save(jobFile(id), job)
     await save(join(root, 'latest.json'), { id })

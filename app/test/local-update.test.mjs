@@ -16,13 +16,13 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'ds-bot-update-unit-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const app = async (path, content) => { await mkdir(join(path, 'Contents/Resources'), { recursive: true }); await writeFile(join(path, 'Contents/Resources/app.asar'), content); return path }
-  const validate = async path => ({ path, hash: await digest(join(path, 'Contents/Resources/app.asar')), executable: 'DeepSeek Bot', version: '0.2.1' })
+  const validate = async path => ({ path, hash: await digest(join(path, 'Contents/Resources/app.asar')), executable: 'DS Bot', version: '0.2.1' })
   const id = randomUUID(), folder = join(root, id)
   await mkdir(folder)
-  const target = await app(join(root, 'DeepSeek Bot.app'), 'old')
-  const stage = await app(join(root, `.DeepSeek-Bot-stage-${id}.app`), 'new')
-  const job = { schema: 1, id, phase: 'prepared', target, stage, backup: join(root, `.DeepSeek-Bot-backup-${id}.app`),
-    oldHash: (await validate(target)).hash, newHash: (await validate(stage)).hash, executable: 'DeepSeek Bot', oldExecutable: 'DeepSeek Bot', oldPid: 1234567 }
+  const target = await app(join(root, 'DS Bot.app'), 'old')
+  const stage = await app(join(root, `.DS-Bot-stage-${id}.app`), 'new')
+  const job = { schema: 1, id, phase: 'prepared', target, stage, backup: join(root, `.DS-Bot-backup-${id}.app`),
+    oldHash: (await validate(target)).hash, newHash: (await validate(stage)).hash, executable: 'DS Bot', oldExecutable: 'DS Bot', oldPid: 1234567 }
   const file = join(folder, 'job.json')
   await save(file, job); await writeFile(join(folder, 'go'), id)
   let starts = 0, stops = 0
