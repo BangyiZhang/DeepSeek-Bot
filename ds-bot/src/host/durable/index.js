@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { install as installTools } from './tools.js'
 import { TEAM_TOOLS } from '../constants.js'
+import { HIDDEN_TOOL_GROUPS } from '../tools.js'
 import { matchesTaskInput, executionContextFor } from './dsh.js'
 import { captureBotContext } from './context.js'
 import { taskStepTitle } from '../../shared/durable-steps.js'
@@ -13,6 +14,8 @@ import { taskHistory } from './history.js'
 const own = (object, key) => object != null && Object.hasOwn(object, key) ? object[key] : undefined
 const taskReads = new Set(['recall', 'read_own_chat', 'read_browser', 'list_capabilities'])
 const workerDenied = new Set([...TEAM_TOOLS.filter(name => !taskReads.has(name) && name !== 'ask_user'), 'create_goal', 'update_goal', 'get_goal', 'ask_user_question', 'run_code'])
+// DSH tools that Bot chats hide; a worker keeps only those its Bot's scope still had.
+const hiddenFromBots = new Set(HIDDEN_TOOL_GROUPS.flat())
 
 function createRequest(body) {
   const { key, prompts, model, agentId } = body
@@ -188,14 +191,18 @@ export function install(rt) {
       }
     }
     const visible = callableTools(agent)
-    const deny = visible.filter(name => workerDenied.has(name) || (name === 'ask_user' && !allowed.has(name)) || (!execution.botManaged && (taskReads.has(name) || name === 'ask_user')))
+    const deny = visible.filter(name => workerDenied.has(name) || (hiddenFromBots.has(name) && !allowed.has(name)) || (name === 'ask_user' && !allowed.has(name)) || (!execution.botManaged && (taskReads.has(name) || name === 'ask_user')))
     if (deny.length) {
       if (typeof agent.ctx?.tools?.restrict !== 'function') throw new Error('The durable worker tool scope could not be restricted')
       // An allow mask built from root schemas drops ancestor preset tools hidden
       // behind PTC. Deny team-only tools and guard the complete captured scope.
-      agent.ctx.tools.restrict({ deny })
+      // restrict() refuses a whole list when one name sits in the Agent's own
+      // scope, so DSH's hidden groups are masked apart from the team tools.
+      const groups = HIDDEN_TOOL_GROUPS.map(group => deny.filter(name => group.includes(name)))
+      for (const group of [...groups, deny.filter(name => !hiddenFromBots.has(name))]) if (group.length) agent.ctx.tools.restrict({ deny: group })
     }
-    if (callableTools(agent).some(name => !allowed.has(name) || workerDenied.has(name))) throw new Error('Team tools could not be removed from this durable worker; retry its setup')
+    const leaked = callableTools(agent).filter(name => !allowed.has(name) || workerDenied.has(name))
+    if (leaked.length) throw new Error(`Team tools could not be removed from this durable worker (${leaked.join(', ')}); retry its setup`)
     if (!workerGuards.has(agent)) {
       if (typeof agent.ctx?.tools?.guard !== 'function') throw new Error('The durable worker tool boundary could not be enforced')
       // Local registrations are not covered by the global allow mask. A tool
