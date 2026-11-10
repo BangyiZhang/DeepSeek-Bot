@@ -67,7 +67,8 @@ test('Bot and group headers retain their compact avatar, name and details chevro
     for (const details of [undefined, 'a']) {
       let opened = null
       const pill = header({ toggleDetails: id => { opened = id } }, { useRoster: hook(data), useUi: hook({ details }) }).children[0]
-      const [avatar, label, , chevron] = pill.children
+      const [avatar, label] = pill.children
+      const chevron = pill.children.find(child => child?.props?.className === 'bt-pill-go')
       assert.equal(avatar.props.className, 'bt-pill-avatar')
       assert.equal(avatar.children[0].props.size, 24)
       assert.ok(avatar.children[0].props[avatarProp])

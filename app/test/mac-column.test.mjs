@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../src/preload.cjs', import.meta.url), 'utf
 function fixture(columns = '56px minmax(0px, 1fr) minmax(0px, 320px)') {
   const properties = new Map(), observers = []
   const frame = { style: { gridTemplateColumns: columns, getPropertyValue: name => properties.get(name), setProperty: (name, value) => properties.set(name, value) } }
-  const body = {}, root = { dataset: {} }
+  const body = { getAttribute: () => null }, root = { dataset: {}, getAttribute: () => null }
   let own = null
   const document = { body, documentElement: root, readyState: 'complete',
     querySelector: selector => selector === '.bt-leftcol,.bt-title-toggle' ? own : frame }
@@ -17,7 +17,7 @@ function fixture(columns = '56px minmax(0px, 1fr) minmax(0px, 320px)') {
   }
   runInNewContext(source, { document, MutationObserver, location: { origin: 'http://127.0.0.1:3096' },
     process: { argv: ['--ds-bot-origin=http://127.0.0.1:3096', '--ds-bot-mac-titlebar'] },
-    require: () => ({ contextBridge: { exposeInMainWorld() {} }, ipcRenderer: { on() {} } }) })
+    require: () => ({ contextBridge: { exposeInMainWorld() {} }, ipcRenderer: { on() {}, send() {} } }) })
   const fire = (target, record = {}) => { for (const observer of observers.filter(item => item.target === target)) observer.callback([record]) }
   return { value: () => properties.get('--ds-bot-mac-columns'),
     columns(value) { frame.style.gridTemplateColumns = value; fire(frame) },

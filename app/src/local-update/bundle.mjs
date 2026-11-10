@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import { digest, json, CHECKS } from './files.mjs'
 
 const execute = promisify(execFile)
-export const BUNDLE_ID = 'io.github.fei2411.deepseekbot'
+export const BUNDLE_ID = 'io.github.fei2411.dsbot'
 export const within = (path, root) => { const part = relative(root, path); return part === '' || (!part.startsWith(`..${sep}`) && part !== '..' && !isAbsolute(part)) }
 export async function command(file, args) {
   try { return (await execute(file, args, { timeout: 60000, maxBuffer: 1024 * 1024 })).stdout.trim() }
@@ -27,7 +27,7 @@ export async function validateBundle(given, arch = process.arch) {
   const path = await realpath(given)
   const plist = JSON.parse(await command('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(path, 'Contents', 'Info.plist')]))
   if (plist.CFBundleIdentifier !== BUNDLE_ID || typeof plist.CFBundleExecutable !== 'string'
-    || basename(plist.CFBundleExecutable) !== plist.CFBundleExecutable || !plist.CFBundleExecutable) throw new Error('Application identity does not match DeepSeek Bot')
+    || basename(plist.CFBundleExecutable) !== plist.CFBundleExecutable || !plist.CFBundleExecutable) throw new Error('Application identity does not match DS Bot')
   const executable = join(path, 'Contents', 'MacOS', plist.CFBundleExecutable)
   if (!within(await realpath(executable), path)) throw new Error('Application executable escapes its bundle')
   await links(path)

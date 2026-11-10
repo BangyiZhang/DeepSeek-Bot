@@ -14,7 +14,7 @@ import { alive, json } from '../src/local-update/files.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const report = await json(resolve(process.argv[2]))
 const folder = await realpath(await mkdtemp(join(tmpdir(), '.dsh-test-local-update-')))
-const target = join(folder, 'DeepSeek Bot.app'), home = join(folder, 'home'), shell = join(folder, 'shell')
+const target = join(folder, 'DS Bot.app'), home = join(folder, 'home'), shell = join(folder, 'shell')
 await mkdir(join(home, 'profiles/ds-bot'), { recursive: true })
 await mkdir(join(folder, 'workspace'))
 await mkdir(shell)
@@ -34,7 +34,7 @@ try {
   mock.stdout.on('data', chunk => { output += chunk })
   const modelUrl = await until(() => /http:\/\/127\.0\.0\.1:\d+\/v1/u.exec(output)?.[0], 'mock socket')
   const port = await new Promise(done => { const server = createServer(); server.listen(0, '127.0.0.1', () => { const n = server.address().port; server.close(() => done(n)) }) })
-  original = spawn(join(target, 'Contents/MacOS/DeepSeek Bot'), [`--remote-debugging-port=${port}`], {
+  original = spawn(join(target, 'Contents/MacOS/DS Bot'), [`--remote-debugging-port=${port}`], {
     env: { ...env, DS_BOT_HOME: home, DS_BOT_SHELL_DATA: shell, DS_BOT_WORKSPACE: join(folder, 'workspace'), DS_BOT_LOCAL_UPDATE_TEST: '1', DEEPSEEK_BASE_URL: modelUrl, DEEPSEEK_API_KEY: 'mock-key' }, stdio: ['ignore', log.fd, log.fd],
   })
   const page = await until(async () => {

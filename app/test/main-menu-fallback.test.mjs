@@ -3,7 +3,8 @@
 import assert from 'node:assert/strict'
 import { before, test } from 'node:test'
 import { app, state } from './helpers/fake-electron.mjs'
-import { startApp, waitFor, window } from './helpers/app-harness.mjs'
+import { state as hostState } from './helpers/fake-host-process.mjs'
+import { handOff, startApp, waitFor, window } from './helpers/app-harness.mjs'
 import { installHooks } from './helpers/register.mjs'
 
 await installHooks()
@@ -18,7 +19,9 @@ before(async () => {
 })
 
 test('macOS without a tray still hides the window and restores it through the Dock', async () => {
-  await waitFor(() => state.windows.length > 0, 'open the window')
+  await waitFor(() => window() !== undefined, 'open the window')
+  hostState.release()
+  await handOff()
   const win = window()
   win.show()
   win.close()
@@ -35,7 +38,7 @@ test('the application menu of macOS carries a Quit when there is no tray', async
   assert.equal(state.tray, undefined, 'there is no tray')
   const items = state.menus.at(-1).template[0].submenu
   const quit = items.at(-1)
-  assert.equal(quit.label, 'Quit DeepSeek Bot', 'the menu ends the app')
+  assert.equal(quit.label, 'Quit DS Bot', 'the menu ends the app')
   assert.equal(typeof quit.click, 'function', 'the entry works')
   quit.click()
   await waitFor(() => state.quits > 0, 'end the app')

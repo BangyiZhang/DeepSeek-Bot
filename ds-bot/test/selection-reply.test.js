@@ -97,7 +97,7 @@ async function fixture(t, { text = 'Original first sentence. Selected second sen
     return React.createElement(React.Fragment, null,
       React.createElement(Bubbles, { texts: [text], roster, selfId: 'chief', actions, sessionId: 'chief', useUi }),
       React.createElement(UserMessageCell, { node: { data: { content: [{ type: 'text', text: 'User message to quote.' }] } }, sessionId: 'chief', useRoster: pick => pick(roster), actions }),
-      React.createElement('div', { className: 'x_centerCol' }, React.createElement('div', { role: 'textbox', contentEditable: true, suppressContentEditableWarning: true }, 'Existing draft. '), React.createElement(ComposerVoice, { sessionId, inputActions, actions, useUi })),
+      React.createElement('div', { className: 'x_centerCol' }, React.createElement('div', { role: 'textbox', contentEditable: true, suppressContentEditableWarning: true }, 'Existing draft. '), React.createElement(ComposerVoice, { sessionId, inputActions, actions, useUi, useRoster: pick => pick({ ...roster, prefs: {} }) })),
       React.createElement(SelectionReply, { sessionId, disabled, actions }))
   }
   const root = createRoot(document.getElementById('root'))

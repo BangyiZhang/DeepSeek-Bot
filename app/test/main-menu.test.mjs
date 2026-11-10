@@ -17,7 +17,7 @@ test('the application menu of macOS retains Quit and Command+Q', async () => {
   await waitFor(() => state.tray !== undefined, 'build the tray')
   const menu = state.menus.at(-1).template
   const items = menu[0].submenu
-  assert.equal(menu[0].label, 'DeepSeek Bot', 'the menu of the app')
+  assert.equal(menu[0].label, 'DS Bot', 'the menu of the app')
   const quit = items.find(item => item.accelerator === 'Command+Q')
   assert.equal(typeof quit?.click, 'function', 'application Quit remains available')
   // The menu keeps the rest of macOS: about, services and the hiding of the app.

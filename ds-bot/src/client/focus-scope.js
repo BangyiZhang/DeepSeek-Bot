@@ -81,7 +81,7 @@ export function attachFocusScope(node, { modal = false, menu = false, close, pre
 
 export function useFocusScope(ref, active = true, options = {}) {
   const state = useRef({ active: false, previous: null })
-  if (active && !state.current.active) state.current.previous = document.activeElement
+  if (active && !state.current.active) state.current.previous = globalThis.document?.activeElement ?? null
   state.current.active = active
   const latest = useRef(options)
   latest.current = options
