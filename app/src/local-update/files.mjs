@@ -3,7 +3,7 @@ import { createReadStream, lstat, readFile, rename, writeFile } from './fs.mjs'
 
 export const JOB_ID = /^[a-f0-9-]{36}$/u
 export const TERMINAL = new Set(['completed', 'rolled_back', 'failed', 'recovery_failed'])
-export const CHECKS = ['plugin-build', 'plugin-test', 'plugin-lint', 'client-check', 'app-test', 'host-smoke', 'app-build', 'pack', 'packaged-check', 'signature', 'archive']
+export const CHECKS = ['plugin-build', 'plugin-test', 'plugin-lint', 'client-check', 'app-test', 'host-smoke', 'pack', 'packaged-check', 'signature', 'archive']
 
 export async function json(file) {
   const info = await lstat(file)

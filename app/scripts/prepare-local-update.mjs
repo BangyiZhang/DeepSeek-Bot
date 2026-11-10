@@ -58,7 +58,6 @@ await run('client-check', process.execPath, ['ds-bot/scripts/build-client.mjs', 
 await npm('app-test', 'app', ['test'])
 await run('host-smoke', process.execPath, ['ds-bot/dev/desktop-smoke.mjs'])
 await run('source-check', '/usr/bin/git', ['-C', root, 'diff', '--check'])
-await npm('app-build', 'app', ['run', 'build'])
 if (await fingerprint() !== sourceHash) throw new Error('Source changed during validation; rerun preparation')
 await npm('pack', 'app', ['run', 'pack', '--', '--mac', `--${process.arch}`])
 const appPath = join(root, 'app', 'dist-pack', process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DS Bot.app')
