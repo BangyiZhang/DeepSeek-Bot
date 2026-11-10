@@ -402,7 +402,12 @@ async function checkMessageSpacing(evaluate) {
   const messages = await evaluate(`(() => {
     return [...document.querySelectorAll('[data-chat-flow] .bt-bubble,[data-chat-flow] [class*="_userRow"] [class*="_bubble"]')].map(node => {
       const rect = node.getBoundingClientRect()
-      return { kind: node.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind'), top: rect.top, bottom: rect.bottom, height: rect.height }
+      // A reply's sent time sits under its last bubble and belongs to that message.
+      const stack = node.closest('.bt-astack')
+      const time = stack?.querySelector(':scope > .bt-utime')
+      const last = stack ? [...stack.querySelectorAll('.bt-bubble')].at(-1) === node : false
+      const bottom = time && last ? Math.max(rect.bottom, time.getBoundingClientRect().bottom) : rect.bottom
+      return { kind: node.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind'), top: rect.top, bottom, height: rect.height }
     }).filter(message => message.height > 0)
   })()`)
   const user = messages.findIndex(message => message.kind === 'user')

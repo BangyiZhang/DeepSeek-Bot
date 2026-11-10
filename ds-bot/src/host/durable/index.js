@@ -555,9 +555,9 @@ export function install(rt) {
       }
       if (record?.pauseRequested && (record.state.checkpoint?.paused || record.input.steps[record.state.checkpoint?.step]?.sessionId !== agent.id)) return { kind: 'reject' }
       await applyExecution(agent.id, metadata.execution, metadata.origin, agent)
-    } catch {
+    } catch (error) {
       scopeFailures.add(agent.id)
-      rt.warn('ds-bot: durable worker scope could not be restored')
+      rt.warn('ds-bot: durable worker scope could not be restored: %s', error)
       return { kind: 'reject' }
     }
     return next()
