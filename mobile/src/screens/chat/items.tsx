@@ -238,8 +238,9 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   }
   if (item.kind === 'user') {
     // A user message with a code block or table takes the full width, as a Bot's does:
-    // a bubble sized to its content cannot hold a block that scrolls sideways.
-    const wide = hasBlockContent(item.text ?? '')
+    // a bubble sized to its content cannot hold a block that scrolls sideways. A file card
+    // shrinks its name to fit, so beside a short text it would leave no room for the name.
+    const wide = hasBlockContent(item.text ?? '') || chips.length > 0
     // Photos with no text show as photos, without a bubble around them.
     const photosOnly = (item.text ?? '') === '' && chips.length === 0 && ((item.imageRefs?.length ?? 0) > 0 || (item.localImages?.length ?? 0) > 0)
     const bubble = (
