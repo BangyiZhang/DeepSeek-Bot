@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Text, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Appearance, Linking, Platform, Text, useColorScheme, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
@@ -14,7 +14,9 @@ import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.ts
 import { ErrorBoundary } from './src/ui/error-boundary.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
-import ShellB from './src/nav/ShellB.tsx'
+import ShellB, { LAST_KEY } from './src/nav/ShellB.tsx'
+import { listLaunchState } from './src/nav/open-chat.ts'
+import * as SecureStore from 'expo-secure-store'
 
 // Colors follow the computer's prefs plus the phone's light/dark mode. The
 // local appearance pref overrides the system scheme.
@@ -25,6 +27,11 @@ function useDark(): boolean {
     void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system'))
     return onPrefsChange(() => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')))
   }, [])
+  // iOS draws its bars and forms natively; they follow the app's choice, not only the system's.
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || override === null) return
+    Appearance.setColorScheme(override === 'light' || override === 'dark' ? override : 'unspecified')
+  }, [override])
   return override === 'dark' || (override !== 'light' && system)
 }
 
@@ -57,6 +64,17 @@ function ThemedShell({ lang }: { lang?: string }) {
   // A language change re-mounts the navigator so every screen reads the new
   // strings; the saved navigation state keeps the user where they were.
   const navState = useRef<NavigationState | undefined>(undefined)
+  // iOS starts on the team list with the last chat over it; the container needs that
+  // stack before its first frame. Read once: later remounts keep navState.
+  const [launch, setLaunch] = useState<object | null | undefined>(Platform.OS === 'ios' ? undefined : null)
+  useEffect(() => {
+    if (launch !== undefined) return
+    void SecureStore.getItemAsync(LAST_KEY).then(text => {
+      let saved = null
+      try { saved = text === null ? null : JSON.parse(text) } catch {}
+      setLaunch(listLaunchState(saved !== null && typeof saved?.id === 'string' && (saved.kind === 'bot' || saved.kind === 'room') ? saved : null))
+    }, () => setLaunch(listLaunchState(null)))
+  }, [])
   const { team } = useTeam()
   const value = useMemo(() => ({ dark, p: palette(dark, team?.prefs?.theme, team?.prefs?.accent) }), [dark, team?.prefs?.theme, team?.prefs?.accent])
   const navTheme = useMemo(() => ({
@@ -71,9 +89,10 @@ function ThemedShell({ lang }: { lang?: string }) {
     },
     fonts: DefaultTheme.fonts,
   }), [dark, value])
+  if (launch === undefined) return <View style={{ flex: 1, backgroundColor: value.p.main }} />
   return (
     <ThemeContext.Provider value={value}>
-      <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
+      <NavigationContainer key={lang} theme={navTheme} initialState={navState.current ?? (launch as NavigationState | null) ?? undefined} onStateChange={state => { navState.current = state }}>
         <ErrorBoundary>
           <ShellB />
         </ErrorBoundary>

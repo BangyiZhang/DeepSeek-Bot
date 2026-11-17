@@ -3,10 +3,13 @@
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
 import { Children, Fragment, useCallback, useContext, useEffect, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import { openChat } from '../nav/open-chat.ts'
+import { NATIVE_HEADER, NativeBar } from '../nav/native-header.tsx'
+// Without an extension, so Metro takes segmented.ios.tsx on iOS.
+import { NATIVE_SEGMENTED, NativeSegmented } from '../ui/native/segmented'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
@@ -42,13 +45,18 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
   const insets = useSafeAreaInsets()
   const inSheet = useInSheet()
   return (
-    <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>
+    <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet || NATIVE_HEADER ? 0 : insets.top }}>
       {children}
     </View>
   )
 }
 
 export function BackRow({ title, onBack, end }: { title: string; onBack: () => void; end?: React.ReactNode }) {
+  if (NATIVE_HEADER) return <NativeBar title={title} extra={end === undefined ? undefined : { headerRight: () => end }} />
+  return <DrawnBackRow title={title} onBack={onBack} end={end} />
+}
+
+function DrawnBackRow({ title, onBack, end }: { title: string; onBack: () => void; end?: React.ReactNode }) {
   const { p } = useTheme()
   return (
     <View style={styles.backRow}>
@@ -125,17 +133,20 @@ function SwitchRow({ label, hint, on, disabled, onChange }: { label: string; hin
         <Text style={[typeScale.settingsRow, { color: p.ink }]}>{label}</Text>
         {hint ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{hint}</Text> : null}
       </View>
-      <Pressable accessibilityRole="switch" accessibilityState={{ checked: on, disabled }} disabled={disabled} onPress={() => onChange(!on)}
-        style={[styles.switch, { backgroundColor: on ? p.accent : p.line }]}>
-        <View style={[styles.knob, { backgroundColor: p.accentInk, alignSelf: on ? 'flex-end' : 'flex-start' }]} />
-      </Pressable>
+      {Platform.OS === 'ios'
+        ? <Switch value={on} disabled={disabled} onValueChange={onChange} trackColor={{ true: p.accent }} accessibilityLabel={label} />
+        : <Pressable accessibilityRole="switch" accessibilityState={{ checked: on, disabled }} disabled={disabled} onPress={() => onChange(!on)}
+            style={[styles.switch, { backgroundColor: on ? p.accent : p.line }]}>
+            <View style={[styles.knob, { backgroundColor: p.accentInk, alignSelf: on ? 'flex-end' : 'flex-start' }]} />
+          </Pressable>}
     </View>
   )
 }
 
 // A choice of a few values, all in view: the same control as the phone's own settings.
 function Segmented({ options, value, onPick }: { options: { id: string; label: string }[]; value: string; onPick: (id: string) => void }) {
-  const { p } = useTheme()
+  const { p, dark } = useTheme()
+  if (NATIVE_SEGMENTED) return <View style={{ marginVertical: 4 }}><NativeSegmented options={options} value={value} onPick={onPick} dark={dark} /></View>
   return (
     <View style={[styles.segRow, { backgroundColor: p.hover }]} accessibilityRole="radiogroup">
       {options.map(option => {
@@ -206,11 +217,12 @@ export function BotDetails({ route, navigation }: any) {
   // opens the Bot settings.
   return (
     <Screen title={bot.name}>
+      {NATIVE_HEADER ? <NativeBar right={[{ label: t('Edit Bot'), icon: 'gearshape', onPress: () => navigation.navigate('BotEdit', { botId: bot.id }) }]} /> : (
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
         <RoundButton label={t('Edit Bot')} onPress={() => navigation.navigate('BotEdit', { botId: bot.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
-      </View>
+      </View>)}
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <Avatar bot={bot} dark={dark} size={64} ring={p.main} main={main} />
@@ -545,11 +557,12 @@ export function GroupDetails({ route, navigation }: any) {
   const notice = (room as { notice?: string }).notice
   return (
     <Screen title={room.name}>
+      {NATIVE_HEADER ? <NativeBar right={[{ label: t('Group settings'), icon: 'gearshape', onPress: () => navigation.navigate('GroupSettings', { roomId: room.id }) }]} /> : (
       <View style={[styles.detailTop, { paddingTop: 8 }]}>
         <RoundButton label={t('Back')} onPress={() => navigation.goBack()}><ChevronLeftIcon color={p.ink2} /></RoundButton>
         <View style={{ flex: 1 }} />
         <RoundButton label={t('Group settings')} onPress={() => navigation.navigate('GroupSettings', { roomId: room.id })}><GearIcon size={18} color={p.ink2} /></RoundButton>
-      </View>
+      </View>)}
       <ScrollView contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 18 }}>
         <View style={{ alignItems: 'center', paddingTop: 4 }}>
           <RoomAvatar room={room} bots={bots} dark={dark} size={56} ring={p.main} />

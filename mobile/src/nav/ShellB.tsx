@@ -1,6 +1,6 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
@@ -24,9 +24,10 @@ import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
 import { activeChatTarget, openChat } from './open-chat.ts'
 import { Sheet, SheetHeader } from './sheet.tsx'
+import { NATIVE_HEADER, useNativeBar } from './native-header.tsx'
 
 const Stack = createNativeStackNavigator()
-const LAST_KEY = 'dsbot.lastChat'
+export const LAST_KEY = 'dsbot.lastChat'
 
 // Drawer content = the desktop sidebar as a drawer: "Needs you" row on top when
 // anything is pending, the team list, and a footer with the You mark + gear.
@@ -114,7 +115,7 @@ function DrawerContent() {
 function Pill({ title, bot, room, bots }: { title: string; bot?: Parameters<typeof Avatar>[0]['bot']; room?: Room; bots: Bot[] }) {
   const { p, dark } = useTheme()
   return (
-    <View style={[styles.pill, { backgroundColor: p.card, borderColor: p.line2 }]}>
+    <View style={NATIVE_HEADER ? styles.barTitle : [styles.pill, { backgroundColor: p.card, borderColor: p.line2 }]}>
       {bot ? <Avatar bot={bot} dark={dark} size={24} ring={p.card} /> : room ? <RoomAvatar room={room} bots={bots} dark={dark} size={24} ring={p.card} /> : null}
       <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20, fontWeight: '500', marginLeft: bot || room ? 8 : 0, flexShrink: 1 }} numberOfLines={1}>{title}</Text>
     </View>
@@ -128,6 +129,7 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
   const insets = useSafeAreaInsets()
   // The link dropped after the team loaded: the screen keeps what it shows and says so.
   const reconnecting = team !== null && !online
+  if (NATIVE_HEADER) return reconnecting ? <Reconnecting /> : null
   return (
     <View style={{ backgroundColor: p.main }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10 }}>
@@ -157,6 +159,16 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
   )
 }
 
+function Reconnecting() {
+  const { p } = useTheme()
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 6, backgroundColor: p.main }} accessibilityRole="alert">
+      <ActivityIndicator size="small" color={p.ink3} />
+      <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Reconnecting…')}</Text>
+    </View>
+  )
+}
+
 function ChatScreenB({ route, navigation }: any) {
   const { team, error, linked, call, computer } = useTeam()
   const { p, dark } = useTheme()
@@ -178,7 +190,19 @@ function ChatScreenB({ route, navigation }: any) {
     void SecureStore.deleteItemAsync(LAST_KEY)
     if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id })
   }, [missing])
-  const header = <Header title={bot?.name ?? room?.name ?? ''} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={() => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }} onSide={bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined} />
+  const openDetails = () => { if (bot) navigation.navigate('BotDetails', { botId: bot.id }); else if (room) navigation.navigate('GroupDetails', { roomId: room.id }) }
+  const openSide = bot !== undefined && bot.sessionId !== undefined ? () => navigation.navigate('Side', { bot, sessionId: bot.sessionId }) : undefined
+  const title = bot?.name ?? room?.name ?? ''
+  useNativeBar({
+    title,
+    titleView: bot !== undefined || room !== undefined ? () => (
+      <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={openDetails} hitSlop={6}>
+        <Pill title={title} bot={bot} room={room} bots={team?.bots ?? []} />
+      </Pressable>
+    ) : undefined,
+    right: [openSide !== undefined ? { label: t('Side chat'), icon: 'bubble.left.and.text.bubble.right', onPress: openSide } : undefined],
+  })
+  const header = <Header title={title} bot={bot} room={room} bots={team?.bots ?? []} onMenu={() => drawer.open()} onPill={openDetails} onSide={openSide} />
   if (team === null) return (
     <View style={{ flex: 1, backgroundColor: p.main }}>
       {header}
@@ -193,6 +217,47 @@ function ChatScreenB({ route, navigation }: any) {
   )
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id }) }
   return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} header={header} onMissing={onMissing} />
+}
+
+// iOS: the team list is the first page, as in the system's own chat apps. A chat
+// pushes on it; Settings and the Create forms come up as sheets from its bar.
+function TeamHome({ navigation }: any) {
+  const { p } = useTheme()
+  const { team } = useTeam()
+  const pending = pendingCountOf(team)
+  const [query, setQuery] = useState('')
+  useNativeBar({
+    title: 'DS Bot',
+    left: [{ label: t('Settings'), icon: 'gearshape', onPress: () => navigation.navigate('Settings') }],
+    extra: {
+      headerLargeTitle: true,
+      headerSearchBarOptions: { placeholder: t('Search the team'), hideWhenScrolling: true, autoCapitalize: 'none', onChangeText: (event: { nativeEvent: { text: string } }) => setQuery(event.nativeEvent.text) },
+    },
+  })
+  // The + menu: a native menu with the two Create forms.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      unstable_headerRightItems: () => [{
+        type: 'menu', label: t('New'), accessibilityLabel: t('New'), icon: { type: 'sfSymbol', name: 'plus' },
+        menu: { items: [
+          { type: 'action', label: t('Create new Bot'), icon: { type: 'sfSymbol', name: 'person.badge.plus' }, onPress: () => navigation.navigate('NewBot') },
+          { type: 'action', label: t('Create group chat'), icon: { type: 'sfSymbol', name: 'person.2' }, onPress: () => navigation.navigate('NewGroup') },
+        ] },
+      }],
+    })
+  }, [navigation])
+  const needs = pending > 0 ? (
+    <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Needs')}
+      style={({ pressed }) => [styles.needsRowNative, { backgroundColor: pressed ? p.hover : 'transparent' }]}>
+      <Text style={[typeScale.rowName, { color: p.accent, flex: 1, fontWeight: '600' }]}>{t('Needs you')}</Text>
+      <View style={[styles.badge, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '600' }}>{pending}</Text></View>
+    </Pressable>
+  ) : undefined
+  return (
+    <View style={{ flex: 1, backgroundColor: p.main }}>
+      <TeamList native header={needs} query={query} onOpen={target => openChat(navigation, target)} />
+    </View>
+  )
 }
 
 function NeedsSheet({ navigation }: any) {
@@ -219,7 +284,7 @@ function SettingsSheet() {
   const { p } = useTheme()
   return (
     <Sheet>
-      <SettingsStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: p.main }, animation: Platform.OS === 'android' ? 'slide_from_right' : 'default' }}>
+      <SettingsStack.Navigator screenOptions={{ ...nativeBarOptions(p), contentStyle: { backgroundColor: p.main }, animation: Platform.OS === 'android' ? 'slide_from_right' : 'default' }}>
         <SettingsStack.Screen name="SettingsHome" component={SettingsHome} />
         <SettingsStack.Screen name="Computers" component={Computers} />
         <SettingsStack.Screen name="Secrets" component={Secrets} />
@@ -290,13 +355,31 @@ function NoticeBanner() {
 // up as sheets with Done or Cancel.
 const PUSH = Platform.OS === 'android' ? 'slide_from_right' as const : 'default' as const
 const RISE = Platform.OS === 'android' ? 'slide_from_bottom' as const : 'default' as const
+// The system bar's look on iOS: the page's own background under it, the team accent
+// on its buttons, and only an arrow on the back button.
+function nativeBarOptions(p: ReturnType<typeof useTheme>['p']) {
+  return {
+    headerShown: NATIVE_HEADER,
+    headerBackButtonDisplayMode: 'minimal' as const,
+    headerTintColor: p.accent,
+    headerStyle: { backgroundColor: p.main },
+    headerLargeStyle: { backgroundColor: p.main },
+    headerTitleStyle: { color: p.ink },
+    headerLargeTitleStyle: { color: p.ink },
+    headerShadowVisible: false,
+    headerLargeTitleShadowVisible: false,
+    title: '',
+  }
+}
+
 function Inner({ initial }: { initial: ChatTarget | null }) {
   const { p } = useTheme()
   return (
     <View style={{ flex: 1 }}>
     <NoticeBanner />
-    <Stack.Navigator initialRouteName="Chat" screenOptions={{ headerShown: false, animation: PUSH, contentStyle: { backgroundColor: p.main } }}>
-      <Stack.Screen name="Chat" component={ChatScreenB} initialParams={initial ?? undefined} />
+    <Stack.Navigator initialRouteName={NATIVE_HEADER ? 'Team' : 'Chat'} screenOptions={{ ...nativeBarOptions(p), animation: PUSH, contentStyle: { backgroundColor: p.main } }}>
+      {NATIVE_HEADER ? <Stack.Screen name="Team" component={TeamHome} /> : null}
+      <Stack.Screen name="Chat" component={ChatScreenB} initialParams={NATIVE_HEADER ? undefined : initial ?? undefined} />
       <Stack.Screen name="BotDetails" component={BotDetails} />
       <Stack.Screen name="BotEdit" component={BotEdit} />
       <Stack.Screen name="GroupDetails" component={GroupDetails} />
@@ -306,9 +389,9 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
       <Stack.Screen name="Folder" component={Folder} />
       <Stack.Screen name="Usage" component={Usage} />
       <Stack.Screen name="BotBrowser">{({ route, navigation }: any) => <BotBrowser bot={route.params.bot} navigation={navigation} />}</Stack.Screen>
-      <Stack.Screen name="Side">{({ route, navigation }: any) => <Side bot={route.params.bot} sessionId={route.params.sessionId} navigation={navigation} />}</Stack.Screen>
+      <Stack.Screen name="Side" options={{ headerShown: false }}>{({ route, navigation }: any) => <Side bot={route.params.bot} sessionId={route.params.sessionId} navigation={navigation} />}</Stack.Screen>
       <Stack.Group screenOptions={{ presentation: 'modal', animation: RISE }}>
-        <Stack.Screen name="Settings" component={SettingsSheet} />
+        <Stack.Screen name="Settings" component={SettingsSheet} options={{ headerShown: false }} />
         <Stack.Screen name="Needs" component={NeedsSheet} />
         <Stack.Screen name="NewBot" component={NewBot} />
         <Stack.Screen name="NewGroup" component={NewGroup} />
@@ -343,6 +426,8 @@ export default function ShellB() {
     return navigation.addListener('state', update)
   }, [navigation])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
+  // iOS opens the saved chat through the container's launch state (App.tsx).
+  if (NATIVE_HEADER) return <ErrorBoundary><Inner initial={saved} /></ErrorBoundary>
   return (
     <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
       <ErrorBoundary>
@@ -353,6 +438,8 @@ export default function ShellB() {
 }
 
 const styles = StyleSheet.create({
+  needsRowNative: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, minHeight: 48 },
+  barTitle: { flexDirection: 'row', alignItems: 'center', maxWidth: '100%' },
   needsRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 12, marginBottom: 4, borderRadius: 10, paddingHorizontal: 12, height: 44 },
   badge: { minWidth: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   foot: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 8 },

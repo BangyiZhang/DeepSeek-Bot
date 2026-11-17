@@ -3,6 +3,7 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../ui/i18n.ts'
 import { type as typeScale, useTheme } from '../ui/tokens.ts'
+import { NATIVE_HEADER, NativeBar } from './native-header.tsx'
 
 // A page that slides up over the chat (Settings, Needs you, Create new Bot, Create
 // group chat). Its own safe-area provider measures the sheet: on iOS a page sheet
@@ -24,6 +25,11 @@ interface HeaderAction { label: string; onPress: () => void; disabled?: boolean;
 // The sheet's bar: what it is in the middle, the way out on one side and, for a
 // form, the action that finishes it on the other.
 export function SheetHeader({ title, left, right }: { title: string; left?: HeaderAction; right?: HeaderAction }) {
+  if (NATIVE_HEADER) return <NativeBar title={title} left={left === undefined ? undefined : [left]} right={right === undefined ? undefined : [right]} />
+  return <DrawnSheetHeader title={title} left={left} right={right} />
+}
+
+function DrawnSheetHeader({ title, left, right }: { title: string; left?: HeaderAction; right?: HeaderAction }) {
   const { p } = useTheme()
   const action = (entry: HeaderAction | undefined, align: 'flex-start' | 'flex-end') => (
     <View style={[styles.side, { alignItems: align }]}>

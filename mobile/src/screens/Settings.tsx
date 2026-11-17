@@ -6,6 +6,8 @@ import { t, getLang, setLang } from '../ui/i18n.ts'
 import { ChevronRightIcon } from '../ui/icons.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
+// Without an extension, so Metro takes settings-form.ios.tsx on iOS.
+import { SETTINGS_FORM, SettingsForm } from '../ui/native/settings-form'
 
 function Row({ label, value, onPress, end }: { label: string; value?: string; onPress?: () => void; end?: React.ReactNode }) {
   const { p } = useTheme()
@@ -60,7 +62,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 }
 
 export function Settings({ navigation }: { navigation?: any }) {
-  const { p } = useTheme()
+  const { p, dark } = useTheme()
   const { team, computer } = useTeam()
   const [prefs, setPrefs] = useState<Record<string, string>>({})
   const [, bump] = useState(0)
@@ -89,6 +91,21 @@ export function Settings({ navigation }: { navigation?: any }) {
   const theme = prefs.theme ?? 'system'
   const lang = getLang()
   const notifStatus = androidNotificationStatus(androidSdk, notifAllowed)
+  const themes = [{ id: 'system', label: t('System') }, { id: 'light', label: t('Light') }, { id: 'dark', label: t('Dark') }]
+  const langs = [{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]
+  const pickLang = (next: string) => { set('lang', next); setLang(next as 'system' | 'zh' | 'en'); bump(v => v + 1) }
+  if (SETTINGS_FORM) return (
+    <SettingsForm dark={dark} accent={p.accent} ink={p.ink} ink2={p.ink2} theme={theme} themes={themes} lang={lang} langs={langs} banners={prefs.banners !== 'off'}
+      labels={{ phone: t('Phone'), team: t('Team'), appearance: t('Appearance'), language: t('Language'), banners: t('In-app banners') }}
+      phone={[{ id: 'Computers', label: t('Computers'), value: computer?.name ?? '' }]}
+      team={[
+        { id: 'Providers', label: t('Models') }, { id: 'Connectors', label: t('Connectors') }, { id: 'Capabilities', label: t('Capabilities') },
+        { id: 'TeamUsage', label: t('Usage') }, { id: 'Secrets', label: t('Secrets') }, { id: 'Location', label: t('Location') },
+        { id: 'Updates', label: t('Updates & diagnostics') }, { id: 'About', label: t('About DS Bot') },
+      ]}
+      onTheme={next => set('theme', next)} onLang={pickLang} onBanners={on => set('banners', on ? 'on' : 'off')}
+      onOpen={id => navigation?.navigate(id)} />
+  )
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
       <Section label={t('Phone')}>

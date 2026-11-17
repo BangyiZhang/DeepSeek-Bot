@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
@@ -15,8 +15,9 @@ export interface ChatTarget { kind: 'bot' | 'room'; id: string }
 
 // The drawer's team list, laid out like the desktop sidebar (sidebar.js): every Main
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
-// by their latest message.
-export function TeamList({ onOpen, query = '', current }: { onOpen: (target: ChatTarget) => void; query?: string; current?: string }) {
+// by their latest message. `native` is the iOS root page: full-width rows with inset
+// separators under the system bar, which the list scrolls beneath.
+export function TeamList({ onOpen, query = '', current, native = false, header }: { onOpen: (target: ChatTarget) => void; query?: string; current?: string; native?: boolean; header?: ReactNode }) {
   const { team, error, computer } = useTeam()
   const { p, dark } = useTheme()
   const hostId = computer?.hostDeviceId ?? ''
@@ -73,11 +74,15 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
     <View style={styles.root}>
       {error ? <Text style={[typeScale.small, { color: p.danger, paddingHorizontal: 20, paddingBottom: 4 }]} accessibilityRole="alert">{error}</Text> : null}
       <SectionList
+        contentInsetAdjustmentBehavior={native ? 'automatic' : undefined}
+        ItemSeparatorComponent={native ? () => <View style={[styles.separator, { backgroundColor: p.line2 }]} /> : undefined}
         sections={[{ data: entries }]}
         keyExtractor={entry => `${entry.kind}-${entry.item.id}`}
         stickySectionHeadersEnabled={false}
-        ListHeaderComponent={mainList.length > 0 ? (
-          <View style={styles.tiles}>
+        ListHeaderComponent={mainList.length > 0 || header !== undefined ? (
+          <View>
+          {header}
+          {mainList.length > 0 ? <View style={styles.tiles}>
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
@@ -86,12 +91,13 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
             ))}
+          </View> : null}
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow native={native} bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+          <RoomRow native={native} room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
         ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
       />
@@ -99,13 +105,13 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
-  bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
+function BotRow({ native, bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
+  native?: boolean; bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
   waiting: boolean; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
-      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [native ? styles.nativeRow : styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
+      <Avatar bot={bot} dark={dark} size={native ? 44 : 36} ring={native ? p.main : p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>
@@ -118,14 +124,14 @@ function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selec
   )
 }
 
-function RoomRow({ room, bots, p, dark, waiting, preview, unread, working, selected, onPress }: {
-  room: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean
+function RoomRow({ native, room, bots, p, dark, waiting, preview, unread, working, selected, onPress }: {
+  native?: boolean; room: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean
   waiting: boolean; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [native ? styles.nativeRow : styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <View>
-        <RoomAvatar room={room} bots={bots} dark={dark} size={36} ring={p.sidebar} />
+        <RoomAvatar room={room} bots={bots} dark={dark} size={native ? 44 : 36} ring={native ? p.main : p.sidebar} />
         {waiting ? <View style={[styles.waitDot, { borderColor: p.main }]}>
           <View style={[styles.waitIn, { backgroundColor: p.accent }]}><Text style={{ color: '#fff', fontSize: 9, fontWeight: '600', textAlign: 'center', lineHeight: 11 }}>?</Text></View>
         </View> : working ? <View style={[styles.waitDot, { borderColor: p.main }]}><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.green }} /></View> : null}
@@ -148,6 +154,8 @@ const styles = StyleSheet.create({
   tile: { width: 104, alignItems: 'center', borderRadius: radius.card, paddingTop: 10, paddingBottom: 8, paddingHorizontal: 6 },
   tag: { marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, maxWidth: '100%' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, paddingVertical: 6, paddingHorizontal: 10, marginHorizontal: 8, borderRadius: 10 },
+  nativeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8, paddingHorizontal: 16 },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 72 },
   rowBody: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   waitDot: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, borderWidth: 3, alignItems: 'center', justifyContent: 'center' },

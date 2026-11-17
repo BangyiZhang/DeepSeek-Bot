@@ -3,6 +3,7 @@ import { useIsFocused } from '@react-navigation/native'
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
+import { NATIVE_HEADER, NativeBar } from '../nav/native-header.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorActionOf, connectorRows, type ConnectorPending, type ConnectorRow } from '../team/connectors.ts'
 import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
@@ -15,9 +16,13 @@ function Screen({ children }: { children: React.ReactNode }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
   const inSheet = useInSheet()
-  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet ? 0 : insets.top }}>{children}</View>
+  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: inSheet || NATIVE_HEADER ? 0 : insets.top }}>{children}</View>
 }
 function Back({ title, onBack }: { title: string; onBack: () => void }) {
+  if (NATIVE_HEADER) return <NativeBar title={title} />
+  return <DrawnBack title={title} onBack={onBack} />
+}
+function DrawnBack({ title, onBack }: { title: string; onBack: () => void }) {
   const { p } = useTheme()
   return (
     <View style={styles.backRow}>

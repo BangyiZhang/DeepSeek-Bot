@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CommonActions, StackRouter, type NavigationAction } from '@react-navigation/routers'
-import { activeChatTarget, openChat } from './open-chat.ts'
+import { activeChatTarget, listLaunchState, openChat } from './open-chat.ts'
 
 const ROUTE_NAMES = ['Chat', 'BotDetails', 'BotEdit', 'GroupDetails', 'GroupSettings', 'Memory', 'Settings', 'Needs', 'NewBot', 'NewGroup']
 const SETTINGS_NAMES = ['SettingsHome', 'Computers', 'Providers']
@@ -107,4 +107,49 @@ test('activeChatTarget resolves launch fallback and clears when another screen i
 
   fresh.dispatch(CommonActions.navigate('Needs'))
   assert.equal(activeChatTarget(fresh.getState(), 'b-chief'), undefined)
+})
+
+// iOS: the team list is the root page and a chat sits on it.
+const LIST_OPTIONS = { ...OPTIONS, routeNames: ['Team', ...ROUTE_NAMES] }
+function createListContainer() {
+  const router = StackRouter({})
+  let state = router.getInitialState(LIST_OPTIONS)
+  return {
+    getState: () => state,
+    dispatch(action: NavigationAction) {
+      const next = router.getStateForAction(state, action as any, LIST_OPTIONS)
+      if (next !== null) state = router.getRehydratedState(next, LIST_OPTIONS)
+    },
+  }
+}
+
+test('openChat from the iOS team list pushes the chat and keeps the list under it', () => {
+  const container = createListContainer()
+  openChat(container, { kind: 'bot', id: 'b-coder' })
+  assert.deepEqual(container.getState().routes.map(route => route.name), ['Team', 'Chat'])
+  assert.deepEqual(container.getState().routes[1].params, { kind: 'bot', id: 'b-coder' })
+  assert.equal(activeChatTarget(container.getState())?.id, 'b-coder')
+})
+
+test('openChat over the iOS list replaces the chat in place and closes a sheet into a chat', () => {
+  const container = createListContainer()
+  openChat(container, { kind: 'bot', id: 'b-coder' })
+  container.dispatch(CommonActions.navigate('BotDetails', { botId: 'b-coder' }))
+  openChat(container, { kind: 'room', id: 'r-team' })
+  assert.deepEqual(container.getState().routes.map(route => route.name), ['Team', 'Chat'])
+  assert.deepEqual(container.getState().routes[1].params, { kind: 'room', id: 'r-team' })
+
+  const fresh = createListContainer()
+  fresh.dispatch(CommonActions.navigate('Needs'))
+  openChat(fresh, { kind: 'bot', id: 'b-chief' })
+  assert.deepEqual(fresh.getState().routes.map(route => route.name), ['Team', 'Chat'])
+})
+
+test('the iOS launch state puts the saved chat over the team list', () => {
+  const router = StackRouter({})
+  const state = router.getRehydratedState(listLaunchState({ kind: 'room', id: 'r-team' }) as any, LIST_OPTIONS)
+  assert.deepEqual(state.routes.map(route => route.name), ['Team', 'Chat'])
+  assert.equal(activeChatTarget(state)?.id, 'r-team')
+  const empty = router.getRehydratedState(listLaunchState(null) as any, LIST_OPTIONS)
+  assert.deepEqual(empty.routes.map(route => route.name), ['Team'])
 })
