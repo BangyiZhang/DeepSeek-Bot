@@ -31,7 +31,7 @@ test('a CLI without a shell running slot shows progress and a ticking clock, the
     setTimeout, clearTimeout, Date, console,
     require: name => name === '@deepseek-ai/dsh-client-ui-primitives' ? { MarkdownText: () => null } : requireHarness(name),
   })
-  let cli = { id: 'r1', provider: 'local-antigravity', phase: 'waiting', active: true, startedAt: Date.now() - 10_000 }
+  let cli = { id: 'r1', provider: 'antigravity-cli', phase: 'waiting', active: true, startedAt: Date.now() - 10_000 }
   const props = {
     sessionId: 'a', useRoster: pick => pick({ byId: { a: { id: 'a', name: 'Chief' } }, roomsById: {} }),
     useSessionStatus: pick => pick(new Map()), useLive: pick => pick({}),

@@ -10,7 +10,7 @@ import { antigravityInput, findAntigravity, install, LocalAntigravityAdapter } f
 
 const fixture = fileURLToPath(new URL('./fixtures/antigravity-run.mjs', import.meta.url))
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] })
-const options = text => ({ provider: 'local-antigravity', model: 'default', messages: [user(text)] })
+const options = text => ({ provider: 'antigravity-cli', model: 'default', messages: [user(text)] })
 const tools = [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }]
 
 function adapter(t, mode) {
@@ -36,10 +36,10 @@ async function collect(value, request) {
 
 test('Antigravity configured model is selectable without a credential', async (t) => {
   const { value } = adapter(t)
-  assert.deepEqual(value.providerInfo(), { id: 'local-antigravity', name: 'Local Antigravity CLI' })
+  assert.deepEqual(value.providerInfo(), { id: 'antigravity-cli', name: 'Local Antigravity CLI' })
   assert.equal((await value.listModels())[0].id, 'default')
-  assert.equal((await value.resolveModel('local-antigravity', 'default')).context.contextWindow, 128_000)
-  await assert.rejects(value.resolveModel('local-antigravity', 'unknown'))
+  assert.equal((await value.resolveModel('antigravity-cli', 'default')).context.contextWindow, 128_000)
+  await assert.rejects(value.resolveModel('antigravity-cli', 'unknown'))
 })
 
 for (const mode of ['text', 'fallback', 'finish-schema', 'finish-info-only', 'finish-name-only']) test(`Antigravity ${mode} renders only validated final text and separates cache usage`, async (t) => {

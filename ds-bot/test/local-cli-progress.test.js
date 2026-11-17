@@ -16,7 +16,7 @@ function runtime() {
 
 test('CLI progress appears before the first model chunk, preserves turn time and finishes', () => {
   const { rt, notices } = runtime()
-  const update = rt.beginCliProgress('local-antigravity', { sessionId: 'a' })
+  const update = rt.beginCliProgress('antigravity-cli', { sessionId: 'a' })
   assert.equal(rt.cliProgressView().a.phase, 'starting')
   assert.equal(rt.cliProgressView().a.startedAt, rt.live.get('a').since)
   update('waiting')
@@ -30,7 +30,7 @@ test('CLI progress appears before the first model chunk, preserves turn time and
 test('independent CLI requests isolate progress and ignore late updates from superseded runs', () => {
   const { rt } = runtime()
   const old = rt.beginCliProgress('local-codex', { sessionId: 'a' })
-  const current = rt.beginCliProgress('local-antigravity', { sessionId: 'a' })
+  const current = rt.beginCliProgress('antigravity-cli', { sessionId: 'a' })
   const other = rt.beginCliProgress('local-codex', { sessionId: 'b' })
   old('error')
   current('responding')
@@ -63,9 +63,9 @@ test('the next turn clears the prior completion and ignores stale callbacks', ()
 test('a tool handoff keeps elapsed time when the next CLI invocation starts', () => {
   const { rt } = runtime()
   rt.live.clear()
-  const update = rt.beginCliProgress('local-antigravity', { sessionId: 'a' })
+  const update = rt.beginCliProgress('antigravity-cli', { sessionId: 'a' })
   const first = rt.cliProgressView().a.startedAt
   update('tools')
-  rt.beginCliProgress('local-antigravity', { sessionId: 'a' })
+  rt.beginCliProgress('antigravity-cli', { sessionId: 'a' })
   assert.equal(rt.cliProgressView().a.startedAt, first)
 })
