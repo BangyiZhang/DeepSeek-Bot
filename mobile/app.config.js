@@ -14,6 +14,9 @@ function versionCode(text) {
 // The Apple Developer team signs the archive; it is account data, so it comes from the
 // environment and is never written here (docs/plans/2026-11-13-ios-release.md).
 const appleTeamId = (process.env.DS_BOT_APPLE_TEAM_ID ?? '').trim()
+// A build signed with someone's own Apple ID needs a bundle id that their team owns;
+// io.github.fei2411.dsbot belongs to the release account.
+const bundleIdentifier = (process.env.DS_BOT_IOS_BUNDLE_ID ?? '').trim()
 
 module.exports = ({ config }) => ({
   ...config,
@@ -23,6 +26,7 @@ module.exports = ({ config }) => ({
     ...config.ios,
     buildNumber: (process.env.DS_BOT_IOS_BUILD_NUMBER ?? version).trim(),
     ...(appleTeamId === '' ? {} : { appleTeamId }),
+    ...(bundleIdentifier === '' ? {} : { bundleIdentifier }),
   },
 })
 module.exports.versionCode = versionCode

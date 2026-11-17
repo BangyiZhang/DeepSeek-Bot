@@ -37,10 +37,26 @@
           "recordAudioAndroid": false
         }
       ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "DS Bot asks for Face ID before it changes keys, secrets, connectors or updates on your computer."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DS Bot sends the photos you choose to your Bots, and uses one you choose as a Bot avatar.",
+          "microphonePermission": false
+        }
+      ],
       "./plugins/android-release-signing.js",
       [
         "expo-build-properties",
         {
+          "ios": {
+            "usePrecompiledModules": false
+          },
           "android": {
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
