@@ -1,0 +1,37 @@
+{
+  "name": "DS Bot",
+  "identifier": "io.github.bangyizhang.dsbot.source",
+  "sourceURL": "https://raw.githubusercontent.com/BangyiZhang/DeepSeek-Bot/main/mobile/sidestore/source.json",
+  "iconURL": "https://raw.githubusercontent.com/BangyiZhang/DeepSeek-Bot/main/mobile/assets/icon.png",
+  "apps": [
+    {
+      "name": "DS Bot",
+      "bundleIdentifier": "io.github.fei2411.dsbot",
+      "developerName": "DS Bot",
+      "subtitle": "Your Bot team, from your phone",
+      "localizedDescription": "Controls the DS Bot team that runs on your computer, through an end-to-end encrypted link. Pair it in DS Bot under Settings → Phone.",
+      "iconURL": "https://raw.githubusercontent.com/BangyiZhang/DeepSeek-Bot/main/mobile/assets/icon.png",
+      "tintColor": "#4d6bfe",
+      "versions": [
+        {
+          "version": "0.3.8",
+          "buildVersion": "0.3.8",
+          "date": "2026-11-17T08:02:49.653Z",
+          "localizedDescription": "First SideStore build: pair with DS Bot under Settings → Phone. System navigation and controls on iOS.",
+          "downloadURL": "https://github.com/BangyiZhang/DeepSeek-Bot/releases/download/ios-v0.3.8/DSBot-0.3.8.ipa",
+          "size": 14175574,
+          "minOSVersion": "16.4"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSPhotoLibraryUsageDescription": "DS Bot sends the photos you choose to your Bots, and uses one you choose as a Bot avatar.",
+          "NSCameraUsageDescription": "DS Bot uses the camera to scan the pairing code that your computer shows.",
+          "NSFaceIDUsageDescription": "DS Bot asks for Face ID before it changes keys, secrets, connectors or updates on your computer."
+        }
+      }
+    }
+  ],
+  "news": []
+}

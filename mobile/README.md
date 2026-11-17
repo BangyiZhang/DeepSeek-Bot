@@ -58,6 +58,19 @@ install).
 With a free Apple ID the install stops opening after 7 days; run step 2 again to renew
 it (the pairing stays). With a paid account it lasts a year.
 
+### Through SideStore
+
+[SideStore](https://docs.sidestore.io) installs the app with your Apple ID and refreshes it
+in the background, so a free Apple ID needs the computer only once. In SideStore, add the
+source `https://raw.githubusercontent.com/BangyiZhang/DeepSeek-Bot/main/mobile/sidestore/source.json`;
+new versions show up there as updates.
+
+To publish a version: build the app unsigned for iPhone, put `Payload/DSBot.app` in a zip
+named `.ipa`, attach it to a GitHub prerelease named `ios-v<version>` (a prerelease, so the
+desktop app's update check, which reads the latest release, does not take it), then run
+`node scripts/sidestore-source.mjs <ipa> <download URL> "<what changed>"` and commit
+`sidestore/source.json`.
+
 ## Release
 
 - Android: `.github/workflows/release.yml` builds and signs the APK.
