@@ -6,7 +6,11 @@ import { delimiter, isAbsolute, join } from 'node:path'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { AntigravityRun } from './antigravity-run.js'
 
-export const ANTIGRAVITY_PROVIDER = 'local-antigravity'
+// The local-agents engine for agy (an ACP agent) owns the route `local-antigravity`;
+// this adapter runs agy as a plain model provider under its own name.
+export const ANTIGRAVITY_PROVIDER = 'antigravity-cli'
+// LEGACY: this provider's name before the local-agents engine took it.
+export const OLD_ANTIGRAVITY_PROVIDER = 'local-antigravity'
 
 export function findAntigravity(command, { path = process.env.PATH ?? '', home = homedir(), platform = process.platform } = {}) {
   const name = command ?? (platform === 'win32' ? 'agy.exe' : 'agy')

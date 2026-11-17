@@ -85,3 +85,28 @@ test('a legacy color id in a color change becomes the renamed color', async (t) 
   const colors = Object.fromEntries((await call('state', {})).value.bots.map(bot => [bot.name, bot.color]))
   assert.equal(colors.Writer, 'cobalt')
 })
+
+const withWorker = (model, extra = {}) => ({
+  ...savedTeam({ defaultBotModel: model }),
+  ...extra,
+  bots: { w1: { id: 'w1', name: 'Worker', model, appliedModel: model, createdAt: 1 } },
+})
+
+test('a team saved with the Antigravity CLI under its old provider name runs it under the new one', async (t) => {
+  const { call, stop, home } = open(withWorker('local-antigravity/default'))
+  t.after(stop)
+  await call('state', {})
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(saved.bots.w1.model, 'antigravity-cli/default')
+  assert.equal(saved.bots.w1.appliedModel, 'antigravity-cli/default')
+  assert.equal(saved.prefs.defaultBotModel, 'antigravity-cli/default')
+  assert.equal(saved.antigravityCliMoved, true)
+})
+
+test('once moved, a ref to the Antigravity local agent is left alone', async (t) => {
+  const { call, stop, home } = open(withWorker('local-antigravity/gemini-4-carbon', { antigravityCliMoved: true }))
+  t.after(stop)
+  await call('state', {})
+  const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.equal(saved.bots.w1.model, 'local-antigravity/gemini-4-carbon')
+})

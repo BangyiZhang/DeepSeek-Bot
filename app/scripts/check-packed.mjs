@@ -375,7 +375,7 @@ function frameRules(file) {
   const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
     .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody')))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
     .filter(rule => rule.length > 0)
 }
 
@@ -558,94 +558,9 @@ async function checkHeaderPill(cdp, evaluate, until) {
   }
 }
 
-async function chat(cdp) {
-  const evaluate = async expression => (await cdp.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value
-  const until = async (expression, label, ms = 120_000) => {
-    const end = Date.now() + ms
-    while (Date.now() < end) {
-      if (await evaluate(`(async () => Boolean(await (${expression})))()`)) return
-      await sleep(250)
-    }
-    throw new Error(`timed out waiting for ${label}`)
-  }
-  // DSH shows a preview notice once per profile; it would keep the focus away from the composer.
-  const dismissNotice = () => evaluate("[...document.querySelectorAll('[role=dialog] button')].find(node => /^(Continue|继续)$/u.test(node.textContent.trim()))?.click()")
-  const text = needle => `document.body.innerText.includes(${JSON.stringify(needle)})`
-  await cdp.call('Runtime.enable')
-  await cdp.call('Log.enable')
-  await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
-  for (const file of frameSheets) {
-    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
-  }
-  await dismissNotice()
-  const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
-  await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
-  await until("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)')", 'the model choice')
-  await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
-  // The mock model's greeting for a new team.
-  await until(text('先让团队帮你做哪块'), 'the greeting')
-  await dismissNotice()
-  // Click the composer through the input pipeline. A bare focus() is not enough where no window
-  // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
-  const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
-  const focusCheck = "(document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA'"
-  // A greeting that just arrived leaves the composer rebinding: for a moment the field is
-  // not editable, so a click lands on it but does not focus it. The probe and the click are
-  // separate round trips, so keep probing and click only where the field itself is on top
-  // until the field holds focus.
-  const probe = `(() => {
-    const el = ${box}
-    if (el === undefined) return null
-    const rect = el.getBoundingClientRect()
-    for (const part of [0.5, 0.25, 0.75, 0.1, 0.9]) {
-      const point = { x: rect.x + rect.width * part, y: rect.y + rect.height / 2 }
-      const hit = document.elementFromPoint(point.x, point.y)
-      if (hit === el || (hit !== null && el.contains(hit))) return { x: point.x, y: point.y }
-    }
-    return null
-  })()`
-  let shot = null
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && !(await evaluate(`Boolean(${focusCheck})`))) {
-    const point = await evaluate(probe)
-    if (point !== null && point !== undefined) {
-      shot = point
-      await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
-      await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
-      await sleep(300)
-    } else await sleep(250)
-  }
-  if (!(await evaluate(`Boolean(${focusCheck})`))) {
-    // Say what was under the cursor, what held the focus and how large the window was.
-    const state = await evaluate(`(() => {
-      const el = ${box}
-      const rect = el === undefined ? null : el.getBoundingClientRect().toJSON()
-      const point = rect === null ? null : { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-      const hit = point === null ? null : document.elementFromPoint(point.x, point.y)
-      const cover = hit?.closest?.('[role=dialog],[aria-modal=true],[data-slot]')
-      const brief = node => (node === null || node === undefined ? null : { tag: node.tagName ?? null, class: String(node.getAttribute?.('class') ?? '').slice(0, 160) })
-      return JSON.stringify({
-        inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight], screen: [screen.width, screen.height], dpr: devicePixelRatio, focused: document.hasFocus(),
-        click: ${JSON.stringify(shot)}, probe: point, box: rect,
-        hit: brief(hit),
-        cover: cover === null || cover === undefined ? null : { tag: cover.tagName, slot: cover.getAttribute('data-slot'), role: cover.getAttribute('role'), modal: cover.getAttribute('aria-modal') },
-        active: brief(document.activeElement),
-      })
-    })()`)
-    throw new Error(`timed out waiting for the focused composer; page state: ${state}`)
-  }
-  await cdp.call('Input.insertText', { text: 'packaged app check' })
-  await until(text('packaged app check'), 'the typed message', 10_000)
-  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-  // The mock model starts its reply with 收到： and the message.
-  try {
-    await until(text('收到：packaged app check'), 'the reply')
-  } catch (error) {
-    const state = await evaluate("JSON.stringify({ active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null, tail: document.body.innerText.slice(-300) })")
-    throw new Error(`${error.message}; page state: ${state}`)
-  }
-  await sleep(1000)
+// The fork's own packaged checks, run in the team window after the chat check:
+// the Bot browser, durable task cards and the unified Tasks page.
+async function forkChecks(cdp, { evaluate, until, main }) {
   const selection = await evaluate(`(() => {
     const tile = document.querySelector('.bt-tile[aria-current="page"]')
     if (!tile) return null
@@ -760,8 +675,178 @@ async function chat(cdp) {
   await cdp.call('Emulation.setEmulatedMedia', { features: [] })
   await evaluate("document.querySelector('.bt-settings-close').click()")
   console.log('check-packed: shared task cards, legacy links and independent task tabs work in both themes and a 390px window')
+}
+
+async function chat(cdp) {
+  const evaluate = async expression => (await cdp.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value
+  const until = async (expression, label, ms = 120_000) => {
+    const end = Date.now() + ms
+    while (Date.now() < end) {
+      if (await evaluate(`(async () => Boolean(await (${expression})))()`)) return
+      await sleep(250)
+    }
+    throw new Error(`timed out waiting for ${label}`)
+  }
+  // DSH shows a preview notice once per profile; it would keep the focus away from the composer.
+  const dismissNotice = () => evaluate("[...document.querySelectorAll('[role=dialog] button')].find(node => /^(Continue|继续)$/u.test(node.textContent.trim()))?.click()")
+  const text = needle => `document.body.innerText.includes(${JSON.stringify(needle)})`
+  await cdp.call('Runtime.enable')
+  await cdp.call('Log.enable')
+  await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
+  for (const file of frameSheets) {
+    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
+  }
+  await dismissNotice()
+  const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
+  await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
+  await until("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)')", 'the model choice')
+  await evaluate("document.querySelector('.bt-model-chip:not(.bt-model-chip-quiet)').click()")
+  // The mock model's greeting for a new team.
+  await until(text('先让团队帮你做哪块'), 'the greeting')
+  await dismissNotice()
+  // Click the composer through the input pipeline. A bare focus() is not enough where no window
+  // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
+  const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
+  const focusCheck = "document.hasFocus() && ((document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA')"
+  // A greeting that just arrived leaves the composer rebinding: for a moment the field is
+  // not editable, so a click lands on it but does not focus it. The probe and the click are
+  // separate round trips, so keep probing and click only where the field itself is on top
+  // until the field holds focus.
+  const probe = `(() => {
+    const el = ${box}
+    if (el === undefined) return null
+    const rect = el.getBoundingClientRect()
+    for (const part of [0.5, 0.25, 0.75, 0.1, 0.9]) {
+      const point = { x: rect.x + rect.width * part, y: rect.y + rect.height / 2 }
+      const hit = document.elementFromPoint(point.x, point.y)
+      if (hit === el || (hit !== null && el.contains(hit))) return { x: point.x, y: point.y }
+    }
+    return null
+  })()`
+  let shot = null
+  let clicked = false
+  const deadline = Date.now() + 30_000
+  // Even if the page's own JS focus() already flipped activeElement and document.hasFocus(), click
+  // at least once through CDP's input pipeline so Xvfb / Aura routes keyboard focus to the widget.
+  while (Date.now() < deadline && (!clicked || !(await evaluate(`Boolean(${focusCheck})`)))) {
+    const point = await evaluate(probe)
+    if (point !== null && point !== undefined) {
+      shot = point
+      await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      clicked = true
+      await sleep(300)
+    } else await sleep(250)
+  }
+  if (!(await evaluate(`Boolean(${focusCheck})`))) {
+    // Say what was under the cursor, what held the focus and how large the window was.
+    const state = await evaluate(`(() => {
+      const el = ${box}
+      const rect = el === undefined ? null : el.getBoundingClientRect().toJSON()
+      const point = rect === null ? null : { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+      const hit = point === null ? null : document.elementFromPoint(point.x, point.y)
+      const cover = hit?.closest?.('[role=dialog],[aria-modal=true],[data-slot]')
+      const brief = node => (node === null || node === undefined ? null : { tag: node.tagName ?? null, class: String(node.getAttribute?.('class') ?? '').slice(0, 160) })
+      return JSON.stringify({
+        inner: [innerWidth, innerHeight], outer: [outerWidth, outerHeight], screen: [screen.width, screen.height], dpr: devicePixelRatio, focused: document.hasFocus(),
+        click: ${JSON.stringify(shot)}, probe: point, box: rect,
+        hit: brief(hit),
+        cover: cover === null || cover === undefined ? null : { tag: cover.tagName, slot: cover.getAttribute('data-slot'), role: cover.getAttribute('role'), modal: cover.getAttribute('aria-modal') },
+        active: brief(document.activeElement),
+      })
+    })()`)
+    throw new Error(`timed out waiting for the focused composer; page state: ${state}`)
+  }
+  await cdp.call('Input.insertText', { text: 'packaged app check' })
+  await until(text('packaged app check'), 'the typed message', 10_000)
+  // DSH's composer drops an Enter while it cannot send: while it is busy, or before it has taken
+  // in the inserted text. Its send button is disabled under the same conditions, so press Enter
+  // once a user could click the button, as a user who sees it greyed out would wait.
+  const send = `(() => {
+    let node = ${box}
+    while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button[aria-busy]') ?? null
+  })()`
+  const snapshot = `(() => {
+    const el = ${box}
+    const button = ${send}
+    return {
+      at: performance.now(), focused: document.hasFocus(), visibility: document.visibilityState,
+      active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      editorComposing: el?.hasAttribute('data-composer-composing') ?? false, popup: document.querySelector('[role=listbox]') !== null,
+      draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+    }
+  })()`
+  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
+  try {
+    // Capture readiness in the existing probe: an extra CDP round trip before Enter can hide a race.
+    await until(`(() => {
+      const button = ${send}
+      if (button === null || button.disabled) return false
+      if (window.__packedEnter === undefined) {
+        const trace = window.__packedEnter = { events: [] }
+        // Every press is recorded, not just the first: a run that needed the second one has to
+        // say so.
+        for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {
+          const entry = { ...${snapshot}, type, key: event.key, code: event.code, keyCode: event.keyCode,
+            target: event.target?.tagName ?? null, composing: event.isComposing, repeat: event.repeat,
+            shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey }
+          trace.events.push(entry)
+          // A later task sees preventDefault from every capture and bubble handler.
+          setTimeout(() => { entry.prevented = event.defaultPrevented }, 0)
+        }, { capture: true })
+      }
+      return true
+    })()`, 'the send button', 30_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
+  const message = 'packaged app check'
+  const draft = `String(${box}?.innerText ?? '')`
+  let previousDraft = null
+  let sent = false
+  for (let press = 1; press <= 3 && !sent; press += 1) {
+    if (press > 1) {
+      await sleep(1000)
+      const state = JSON.parse(await evaluate(`JSON.stringify({ ...${snapshot}, enterCount: window.__packedEnter?.events?.length ?? 0 })`))
+      const shown = String(state.draft ?? '')
+      if (!shown.includes(message)) break
+      if (shown !== previousDraft) break
+      if (state.send === null || state.send.disabled) break
+      if (!state.editable) break
+      // When the previous press never reached the page at all under Xvfb, re-prime focus through
+      // Page.bringToFront and a real click on the composer before pressing Enter again.
+      if (state.enterCount === 0) {
+        await cdp.call('Page.bringToFront').catch(() => {})
+        const point = await evaluate(probe)
+        if (point !== null && point !== undefined) {
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await sleep(200)
+        }
+      }
+    }
+    previousDraft = await evaluate(draft)
+    for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    try {
+      await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
+      sent = true
+    } catch {
+      // The field still holds the text; the next pass reads the state before deciding to press again.
+    }
+  }
+  if (!sent) throw new Error(`timed out waiting for Enter to send the message; composer: ${await composerState()}`)
+  // The mock model starts its reply with 收到： and the message.
+  try {
+    await until(text('收到：packaged app check'), 'the reply')
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
+  await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
   if (process.platform === 'darwin') await checkComputerHelper(evaluate, until)
+  return { evaluate, until, main }
 }
 
 async function checkComputerHelper(evaluate, until) {
@@ -834,7 +919,19 @@ try {
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
   }
-  const chatError = await chat(cdp).then(() => undefined, error => error)
+  // Wait until the start window finishes its cross-fade and closes before driving the team window;
+  // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.
+  const revealEnd = Date.now() + 120_000
+  while (Date.now() < revealEnd) {
+    if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') === true) break
+    await sleep(200)
+  }
+  if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') !== true) {
+    throw new Error('timed out waiting for the start window to hand off to the team window')
+  }
+  await windowState('win.focus(), win.webContents.focus(), true')
+  await cdp.call('Page.bringToFront').catch(() => {})
+  const chatError = await chat(cdp).then(tools => forkChecks(cdp, tools)).then(() => undefined, error => error)
   if (shotFile) {
     const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
     writeFileSync(resolve(shotFile), Buffer.from(data, 'base64'))
