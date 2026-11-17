@@ -7,6 +7,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "version": "0.3.9",
       "icon": "./assets/app.icon",
       "bundleIdentifier": "io.github.fei2411.dsbot",
       "infoPlist": {

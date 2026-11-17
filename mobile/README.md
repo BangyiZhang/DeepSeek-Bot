@@ -71,6 +71,11 @@ desktop app's update check, which reads the latest release, does not take it), t
 `node scripts/sidestore-source.mjs <ipa> <download URL> "<what changed>"` and commit
 `sidestore/source.json`.
 
+SideStore offers an update only when major.minor.patch goes up; a higher build number
+alone is not an update. The iPhone version is the higher of DS Bot's version and
+`ios.version` in `app.json`, so an iPhone-only release raises `ios.version` by one patch
+(and past DS Bot's version, if DS Bot has caught up).
+
 ## Release
 
 - Android: `.github/workflows/release.yml` builds and signs the APK.

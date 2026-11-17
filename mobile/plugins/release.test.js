@@ -3,7 +3,7 @@ const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { test } = require('node:test')
 const { applyArchs, sign } = require('./android-release-signing.js')
-const { versionCode } = require('../app.config.js')
+const { iosVersion, versionCode } = require('../app.config.js')
 
 // app/build.gradle as `expo prebuild` of Expo 58 writes it.
 const gradle = readFileSync(join(__dirname, 'fixtures', 'expo-58-app-build.gradle'), 'utf8')
@@ -61,4 +61,12 @@ test('Android config pins compileSdkVersion <= targetSdkVersion (36) and declare
   assert.equal(buildProps?.android?.targetSdkVersion, 36)
   assert.equal(buildProps?.android?.compileSdkVersion, 36)
   assert.ok(buildProps.android.compileSdkVersion <= buildProps.android.targetSdkVersion)
+})
+
+test('the iPhone takes its own version when it is ahead of DS Bot, and DS Bot\'s once that catches up', () => {
+  assert.equal(iosVersion('0.3.8', '0.3.9'), '0.3.9')
+  assert.equal(iosVersion('0.3.9', '0.3.9'), '0.3.9')
+  assert.equal(iosVersion('0.4.0', '0.3.9'), '0.4.0')
+  assert.equal(iosVersion('0.3.10', '0.3.9'), '0.3.10')
+  assert.equal(iosVersion('0.3.8', undefined), '0.3.8')
 })
