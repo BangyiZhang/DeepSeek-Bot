@@ -400,12 +400,13 @@ async function checkBotBrowser(evaluate, until, botId) {
 
 async function checkMessageSpacing(evaluate) {
   const messages = await evaluate(`(() => {
-    return [...document.querySelectorAll('[data-chat-flow] .bt-bubble,[data-chat-flow] [class*="_userRow"] [class*="_bubble"]')].map(node => {
+    // A user message is .bt-ubody, or the host's own bubble inside .bt-uhost (user-message.js).
+    return [...document.querySelectorAll('[data-chat-flow] .bt-bubble,[data-chat-flow] .bt-ubody,[data-chat-flow] .bt-uhost [class*="_bubble"]')].map(node => {
       const rect = node.getBoundingClientRect()
-      // A reply's sent time sits under its last bubble and belongs to that message.
-      const stack = node.closest('.bt-astack')
+      // A sent time sits under a message's last bubble and belongs to that message.
+      const stack = node.closest('.bt-astack,.bt-ustack')
       const time = stack?.querySelector(':scope > .bt-utime')
-      const last = stack ? [...stack.querySelectorAll('.bt-bubble')].at(-1) === node : false
+      const last = stack ? [...stack.querySelectorAll('.bt-bubble,.bt-ubody,.bt-uhost [class*="_bubble"]')].at(-1) === node : false
       const bottom = time && last ? Math.max(rect.bottom, time.getBoundingClientRect().bottom) : rect.bottom
       return { kind: node.closest('[data-chat-flow-kind]')?.getAttribute('data-chat-flow-kind'), top: rect.top, bottom, height: rect.height }
     }).filter(message => message.height > 0)
