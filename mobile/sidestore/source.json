@@ -15,6 +15,15 @@
       "versions": [
         {
           "version": "0.3.8",
+          "buildVersion": "2026111701",
+          "date": "2026-11-17T08:31:07.174Z",
+          "localizedDescription": "New iOS 26 icon with dark and tinted styles.",
+          "downloadURL": "https://github.com/BangyiZhang/DeepSeek-Bot/releases/download/ios-v0.3.8-2026111701/DSBot-0.3.8-2026111701.ipa",
+          "size": 16395746,
+          "minOSVersion": "16.4"
+        },
+        {
+          "version": "0.3.8",
           "buildVersion": "0.3.8",
           "date": "2026-11-17T08:02:49.653Z",
           "localizedDescription": "First SideStore build: pair with DS Bot under Settings → Phone. System navigation and controls on iOS.",
