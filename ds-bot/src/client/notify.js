@@ -104,7 +104,9 @@ export function notificationRows({ statuses, roster, approvals = [] }) {
         ...waiting.map(approval => `approval:${approval.id}`),
         ...(interaction !== undefined ? [`interaction:${interaction?.id ?? interaction?.kind ?? 'pending'}`] : []),
       ].sort()
-      if (status === undefined && keys.length === 0) continue
+      // Every conversation gets a row, quiet ones too: DSH has no status for a Session
+      // until something happens there, and a row that first appears with an approval
+      // would read as one that was already waiting.
       rows.push({
         id: entry.id, sessionId, name: entry.name, group,
         unread: status?.completionUnread === true, pending: keys.length > 0,
@@ -113,4 +115,29 @@ export function notificationRows({ statuses, roster, approvals = [] }) {
     }
   }
   return rows
+}
+
+/**
+ * The notifications one new snapshot calls for, and the snapshot to compare the next one with.
+ * @param {object} state
+ * @param {Map<string, object> | null} state.previous the last snapshot, null before the first
+ * @param {ReturnType<typeof notificationRows>} state.rows
+ * @param {string | null} state.viewing the Session on screen
+ * @param {boolean} state.focused is the window in front
+ * @param {{ enabled: boolean, muted: Record<string, true> }} state.prefs
+ * @returns {{ notices: Array<{ sessionId: string, title: string, body: string }>, next: Map<string, object> }}
+ */
+export function noticesFor({ previous, rows, viewing, focused, prefs }) {
+  const notices = []
+  const next = new Map()
+  for (const { id, sessionId, name, group, status: after } of rows) {
+    next.set(id, after)
+    const kind = notifyKind({
+      before: previous?.get(id), after,
+      viewing: viewing === sessionId, focused,
+      enabled: prefs.enabled, muted: prefs.muted[id] === true, group,
+    })
+    if (kind !== undefined) notices.push({ sessionId: id, ...noticeText({ title: name, kind }) })
+  }
+  return { notices, next }
 }

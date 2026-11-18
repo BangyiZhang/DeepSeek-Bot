@@ -4,7 +4,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Switch } from './bot-settings.js'
 import { t } from './i18n.js'
-import { NOTIFY_KEY, badgeOf, noticeText, notificationRows, notifyKind, readNotifyPrefs, writeNotifyPrefs } from './notify.js'
+import { NOTIFY_KEY, badgeOf, noticesFor, notificationRows, readNotifyPrefs, writeNotifyPrefs } from './notify.js'
 
 const shellNotify = notice => Promise.resolve(bridge()?.notify?.(notice)).catch(() => {})
 const bridge = () => (typeof window === 'undefined' ? undefined : window.dsBotApp)
@@ -41,7 +41,8 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
   const roster = useRoster(value => value)
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
-  const previous = useRef(new Map())
+  // null until the first snapshot: what waits when the window opens is no news.
+  const previous = useRef(null)
   useEffect(() => {
     const shell = bridge()
     shell?.onOpenSession?.((sessionId) => { actions.openSession?.(sessionId) })
@@ -51,22 +52,8 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
     const prefs = prefsNow()
     const open = document.hasFocus?.() !== false && document.visibilityState !== 'hidden'
     const rows = notificationRows({ statuses, roster, approvals: work.approvals })
-    const next = new Map()
-    for (const row of rows) {
-      const { id, sessionId, name, group, status: after } = row
-      const before = previous.current.get(id)
-      next.set(id, after)
-      const kind = notifyKind({
-        before, after,
-        viewing: viewing === sessionId,
-        focused: open,
-        enabled: prefs.enabled,
-        muted: prefs.muted[id] === true,
-        group,
-      })
-      if (kind === undefined) continue
-      void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) })
-    }
+    const { notices, next } = noticesFor({ previous: previous.current, rows, viewing, focused: open, prefs })
+    for (const notice of notices) void shellNotify(notice)
     previous.current = next
     bridge()?.setBadge?.(badgeOf(rows))
   }, [statuses, viewing, roster, work])

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { NOTIFY_KEY, badgeOf, noticeText, notificationRows, notifyKind, readNotifyPrefs, writeNotifyPrefs } from '../src/client/notify.js'
+import { NOTIFY_KEY, badgeOf, noticeText, noticesFor, notificationRows, notifyKind, readNotifyPrefs, writeNotifyPrefs } from '../src/client/notify.js'
 
 // #1504: a window the user is not looking at says a Bot answered, or a card waits on
 // them. What may leave the app is the conversation's name and one line, never the message.
@@ -75,4 +75,23 @@ test('questions and group approvals use stable conversation ids after part switc
   assert.equal(notifyKind({ ...base, before: {}, after: rows[0].status, muted: prefs.muted[rows[0].id] }), undefined)
   assert.equal(notifyKind({ ...base, before: {}, after: rows[1].status, group: true }), 'question')
   assert.equal(badgeOf(rows), 2)
+})
+
+test('an approval for a Bot that DSH has no status for yet still notifies, once', () => {
+  const roster = { bots: [{ id: 'bot', sessionId: 'part-1', name: 'Bot' }], rooms: [] }
+  const prefs = { enabled: true, muted: {} }
+  const watch = { viewing: null, focused: false, prefs }
+  const quiet = noticesFor({ ...watch, previous: null, rows: notificationRows({ roster, statuses: new Map(), approvals: [] }) })
+  assert.deepEqual(quiet.notices, [])
+  const asked = noticesFor({ ...watch, previous: quiet.next, rows: notificationRows({ roster, statuses: new Map(), approvals: [{ id: 'a1', botId: 'bot' }] }) })
+  assert.deepEqual(asked.notices.map(notice => [notice.sessionId, notice.title]), [['bot', 'Bot']])
+  const still = noticesFor({ ...watch, previous: asked.next, rows: notificationRows({ roster, statuses: new Map(), approvals: [{ id: 'a1', botId: 'bot' }] }) })
+  assert.deepEqual(still.notices, [])
+})
+
+test('approvals already waiting when the window opens say nothing', () => {
+  const roster = { bots: [{ id: 'bot', sessionId: 'part-1', name: 'Bot' }], rooms: [] }
+  const rows = notificationRows({ roster, statuses: new Map(), approvals: [{ id: 'a1', botId: 'bot' }] })
+  assert.deepEqual(noticesFor({ previous: null, rows, viewing: null, focused: false, prefs: { enabled: true, muted: {} } }).notices, [])
+  assert.deepEqual(noticesFor({ previous: new Map(), rows, viewing: null, focused: false, prefs: { enabled: true, muted: {} } }).notices, [])
 })
