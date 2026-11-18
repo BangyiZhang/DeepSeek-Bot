@@ -54,6 +54,11 @@ export function createNotifications({ Notification, systemPreferences, platform 
     let settled = false
     const done = () => { live.delete(notification) }
     notification.on('close', done)
+    // macOS refuses here, not in the constructor: a banner it will not show leaves no other trace.
+    notification.on('failed', (_event, error) => {
+      done()
+      log.warn?.('ds-bot: notification failed: %s', error)
+    })
     notification.on('click', () => {
       // One banner opens one Session: a second click, or a click after close, is nothing.
       if (settled) return

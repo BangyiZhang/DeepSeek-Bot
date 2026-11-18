@@ -13,8 +13,9 @@ function harness({ authorizationStatus = 'authorized', supported = true } = {}) 
     close() { this.closed = true; this.emit('close') }
   }
   const systemPreferences = { getNotificationSettings: () => ({ authorizationStatus }) }
-  const log = { warn() {} }
-  return { notifications: createNotifications({ Notification, systemPreferences, platform: 'darwin', log }), shown }
+  const warnings = []
+  const log = { warn(...args) { warnings.push(args) } }
+  return { notifications: createNotifications({ Notification, systemPreferences, platform: 'darwin', log }), shown, warnings }
 }
 
 describe('notifications', () => {
@@ -30,6 +31,13 @@ describe('notifications', () => {
     assert.equal(opened, 1, 'the click opens the Session')
     shown[0].emit('click')
     assert.equal(opened, 1, 'a clicked banner opens once')
+  })
+
+  test('a banner the system refuses is logged', () => {
+    const { notifications, shown, warnings } = harness()
+    notifications.show({ title: 'Writer', body: 'Hi' })
+    shown[0].emit('failed', {}, 'Notifications are not allowed for this application')
+    assert.deepEqual(warnings, [['ds-bot: notification failed: %s', 'Notifications are not allowed for this application']])
   })
 
   test('a window already in front is left alone', () => {
