@@ -18,6 +18,7 @@ import { ConnectorsPage } from './connectors-page.js'
 import { PhonePage } from './phone-page.js'
 import { ImPage } from './im-page.js'
 import { CapabilitiesPage } from './capability-settings.js'
+import { APPROVAL_TIMEOUTS, approvalTimeoutOf } from './approval-rules.js'
 import { BrowserPage } from './browser-settings.js'
 import { TasksPage } from './tasks-page.js'
 import { ComputerPage } from './computer.js'
@@ -162,6 +163,10 @@ function GeneralPage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    h(SetSection, { key: 'approvals', title: t('Approvals') },
+      h(SetRow, { label: t('Reject unanswered approvals'), hint: t('A Bot waiting for your approval goes on without the step after this long. It is never allowed on its own.') },
+        h('select', { className: 'bt-select', 'aria-label': t('Reject unanswered approvals'), value: String(approvalTimeoutOf(prefs)), onChange: event => run(actions.setPrefs({ approvalTimeout: Number(event.target.value) })) },
+          APPROVAL_TIMEOUTS.map(minutes => h('option', { key: minutes, value: String(minutes) }, minutes === 0 ? t('Never') : t('After {n} min', { n: minutes })))))),
     h(SetSection, { key: 'memory', title: t('Memory') },
       h(SetRow, { label: t('Bring up related memory') },
         h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),

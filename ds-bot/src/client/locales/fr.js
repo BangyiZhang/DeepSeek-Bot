@@ -1,6 +1,18 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Always allow this folder": "Toujours autoriser ce dossier",
+  "Always allow this command": "Toujours autoriser cette commande",
+  "Files in {folder}": "Fichiers dans {folder}",
+  "The command {command}": "La commande {command}",
+  "No answer: rejected automatically in {n} min": "Sans réponse : refus automatique dans {n} min",
+  "No one answered the approval for {tool}, so it was rejected and {name} went on without it.": "Personne n’a répondu à l’approbation de {tool} : elle a été refusée et {name} a continué sans cette étape.",
+  "Always allowed": "Toujours autorisé",
+  "Approvals": "Approbations",
+  "Reject unanswered approvals": "Refuser les approbations sans réponse",
+  "A Bot waiting for your approval goes on without the step after this long. It is never allowed on its own.": "Un Bot qui attend votre approbation continue sans cette étape passé ce délai. Rien n’est jamais autorisé tout seul.",
+  "After {n} min": "Après {n} min",
+  "Never": "Jamais",
   'A new reply is waiting': "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",

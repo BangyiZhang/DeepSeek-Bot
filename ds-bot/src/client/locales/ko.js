@@ -1,6 +1,18 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "Always allow this folder": "이 폴더 항상 허용",
+  "Always allow this command": "이 명령 항상 허용",
+  "Files in {folder}": "{folder} 안의 파일",
+  "The command {command}": "명령 {command}",
+  "No answer: rejected automatically in {n} min": "응답이 없으면 {n}분 후 자동으로 거부됩니다",
+  "No one answered the approval for {tool}, so it was rejected and {name} went on without it.": "{tool} 승인에 응답이 없어 자동으로 거부했고, {name}은(는) 그 단계를 건너뛰고 계속했습니다.",
+  "Always allowed": "항상 허용",
+  "Approvals": "승인",
+  "Reject unanswered approvals": "응답 없는 승인 자동 거부",
+  "A Bot waiting for your approval goes on without the step after this long. It is never allowed on its own.": "승인을 기다리는 Bot은 이 시간이 지나면 그 단계를 건너뛰고 계속합니다. 자동으로 허용되지는 않습니다.",
+  "After {n} min": "{n}분 후",
+  "Never": "안 함",
   'A new reply is waiting': "새 답변이 도착했습니다",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',

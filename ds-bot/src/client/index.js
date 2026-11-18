@@ -57,6 +57,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock, DurableApprovalDock } from './member-status.js'
+import { APPROVAL_RULES_CSS, ExpiredApprovalDock, installApprovalDetail } from './approval-rules.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
@@ -1182,6 +1183,7 @@ export function apply(ctx) {
     [FEEDBACK_CSS, 'feedback'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
+    [APPROVAL_RULES_CSS, 'approval-rules'],
     [TASK_CSS, 'tasks'],
     [PASTE_CSS, 'paste'],
     [OPENING_CSS, 'opening'],
@@ -1301,6 +1303,8 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-readonly', order: -105, inject: face }, ReadOnlyDock),
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-task-approval', order: -105, inject: face }, DurableApprovalDock),
+    () => shadow('conversation.input.dock', { id: 'bot-approval-expired', order: -104, inject: face }, ExpiredApprovalDock),
+    () => ctx.slots.inject('conversation.approval.detail', () => installApprovalDetail(ctx.slots, face, BOT_PRIORITY)),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
     () => shadow('conversation.input.dock', { id: 'bot-connector', order: -89, inject: face }, ConnectorDock),

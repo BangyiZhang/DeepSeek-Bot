@@ -7,6 +7,7 @@ import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { TIMEOUT_CHOICES, TIMEOUT_DEFAULT_MIN } from './approval-rules.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
@@ -154,7 +155,7 @@ export function install(rt) {
       .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
       .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
       .map(sessionId => [sessionId, true])),
-    work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, cli: rt.cliProgressView?.() ?? {} },
+    work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), expiredApprovals: rt.expiredApprovalsView?.() ?? [], waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {}, cli: rt.cliProgressView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     learning: rt.learningView(),
@@ -249,6 +250,11 @@ export function install(rt) {
     if (body.enterToSend !== undefined) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
+    }
+    if (body.approvalTimeout !== undefined) {
+      if (body.approvalTimeout === null || body.approvalTimeout === TIMEOUT_DEFAULT_MIN) delete state.prefs.approvalTimeout
+      else if (TIMEOUT_CHOICES.includes(body.approvalTimeout)) state.prefs.approvalTimeout = body.approvalTimeout
+      else throw invalid(`Approval timeout must be one of ${TIMEOUT_CHOICES.join(', ')} minutes`)
     }
     if (body.memoryAutoRecall !== undefined) {
       if (body.memoryAutoRecall === false) state.prefs.memoryAutoRecall = false
@@ -531,8 +537,14 @@ export function install(rt) {
           await rt.deleteRoom(body.id)
           return ok(view())
         case 'approval-answer':
-          rt.answerApproval(body.id, body.choice)
+          if (body.choice === 'always') {
+            await rt.load()
+            await rt.allowAlways(body.id)
+          } else rt.answerApproval(body.id, body.choice)
           return ok(true)
+        case 'approval-rule-delete':
+          await rt.load()
+          return ok(await rt.removeApprovalRule(body.botId, body.id))
         // A stop that fails partway still parks the goal, or it wakes the admin again.
         case 'stop-member-work':
           try {

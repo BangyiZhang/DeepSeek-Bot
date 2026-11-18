@@ -1,6 +1,18 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Always allow this folder": "このフォルダーを常に許可",
+  "Always allow this command": "このコマンドを常に許可",
+  "Files in {folder}": "{folder} 内のファイル",
+  "The command {command}": "コマンド {command}",
+  "No answer: rejected automatically in {n} min": "応答がなければ {n} 分後に自動で拒否します",
+  "No one answered the approval for {tool}, so it was rejected and {name} went on without it.": "{tool} の承認に応答がなかったため自動で拒否し、{name} はその手順を飛ばして続けました。",
+  "Always allowed": "常に許可",
+  "Approvals": "承認",
+  "Reject unanswered approvals": "応答のない承認を自動で拒否",
+  "A Bot waiting for your approval goes on without the step after this long. It is never allowed on its own.": "承認待ちの Bot は、この時間が過ぎるとその手順を飛ばして続けます。自動で許可されることはありません。",
+  "After {n} min": "{n} 分後",
+  "Never": "しない",
   'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",

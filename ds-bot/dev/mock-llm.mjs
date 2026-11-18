@@ -39,7 +39,8 @@
 //   记住[@话题] 事实 (the admin saves to the group memory) · 自己记住 / 团队记住 事实 (own / team)
 //   忘掉 事实 (the admin) · 回忆 [词] (every member)
 //   查私聊 关键词 (read_own_chat) · 长文 N · 上下文里有 词 · 撑爆 · 报错 [名] (that member's call, or every member's, fails with 401)
-//   提权 (members other than the admin run a shell command that asks for full access)
+//   提权 (members other than the admin run a shell command that asks for full access; in a
+//   Bot's own chat, 提权 alone does the same)
 //   写成文字 (members write their tool call as text instead of making it; also in a Bot's own chat)
 //   派活 N (the admin hands the first other member N seconds of work; the admin answers its result)
 //   分步 N (like 派活, but the member says a line at each of its three steps, N seconds apart)
@@ -715,6 +716,10 @@ function decide(body, sessionId) {
     return tools.has('list_bots') ? [tool('list_bots', {})] : [text(`Durable result ${durableRequest}: completed without team tools`)]
   }
   if (/团队|班底|team/i.test(userText) && tools.has('list_bots')) return [tool('list_bots', {})]
+  const ownShell = ['pwsh', 'bash'].find(name => tools.has(name))
+  if (/^提权$/.test(userText.trim()) && ownShell) {
+    return [text('这一步要写工作区外的文件，我申请一次提权。'), tool(ownShell, { command: 'echo ok', description: '在工作区外写一个测试文件', justification: ESCALATION, sandbox_permissions: 'danger-full-access' })]
+  }
   if (/想想|思考|think/i.test(userText)) {
     return [think('用户想让我认真想一下。先拆成三件事：目标、约束、下一步。'), text('想了一下，建议分三步走：先定目标，再看约束，最后定下一步。')]
   }

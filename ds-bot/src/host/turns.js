@@ -650,9 +650,11 @@ export function install(rt) {
 
   // What a running tool call is about, for an approval card: its own description and
   // the command, path or address it acts on.
+  const callArgs = (sessionId, callId) => {
+    try { return JSON.parse(live.get(sessionId)?.calls?.get(callId)?.args ?? '{}') ?? {} } catch { return {} }
+  }
   const callDetail = (sessionId, callId) => {
-    let args
-    try { args = JSON.parse(live.get(sessionId)?.calls?.get(callId)?.args ?? '{}') } catch { args = {} }
+    const args = callArgs(sessionId, callId)
     const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')
     const text = first(['description', 'justification'])
     const code = first(['command', 'cmd', 'file_path', 'path', 'url', 'query'])
@@ -1396,5 +1398,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callArgs, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
 }
