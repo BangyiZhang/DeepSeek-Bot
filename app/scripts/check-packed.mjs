@@ -659,7 +659,8 @@ async function forkChecks(cdp, { evaluate, until, main }) {
   await cdp.call('Emulation.setEmulatedMedia', { features: [] })
   console.log('check-packed: task questions, answers and activity survive reload, remain read-only, and render in both themes and a narrow column')
   await evaluate("[...document.querySelectorAll('.bt-durable-chat')].find(node=>node.querySelector('strong')?.textContent === 'Review project changes').querySelector('.bt-durable-chat-actions button').click()")
-  await until("document.querySelector('.bt-settings-item[aria-current=page]')?.textContent === 'Tasks' && !!document.querySelector('.bt-tasks-page [data-task-source=durable]')", 'the legacy task link opening unified Tasks settings')
+  // Settings groups its pages since 0.3.10: the Tasks page is the Scheduled tasks part of Team.
+  await until("document.querySelector('.bt-settings-item[aria-current=page] .bt-settings-label')?.textContent === 'Team' && !!document.querySelector('.bt-tasks-page [data-task-source=durable]')", 'the legacy task link opening unified Tasks settings')
   const taskTabs = "[...document.querySelectorAll('.bt-tasks-page>.bt-seg button')]"
   await evaluate(`${taskTabs}.find(node=>node.textContent === 'Scheduled tasks').click()`)
   await until(`${taskTabs}.find(node=>node.textContent === 'Scheduled tasks')?.getAttribute('aria-pressed') === 'true' && !document.querySelector('.bt-tasks-page [data-task-source=durable]')`, 'the original scheduled-task view')
