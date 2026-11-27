@@ -232,6 +232,13 @@ export const USER_MESSAGE_CSS = `
    under the stack, at its right edge. */
 .bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
 .bt-uhost [class*="_userStack"]{max-width:100%}
+/* Nothing a message holds may widen it past its column: the stack aligns to the right,
+   so a wider child would spill out to the left over the chat. Long lines wrap; a code
+   block or table that still does not fit scrolls inside the bubble. */
+.bt-uhost>.bt-fold-body,.bt-uhost [class*="_userStack"]>*,.bt-uhost [class*="_bubble"]{max-width:100%;min-width:0;box-sizing:border-box}
+.bt-uhost [class*="_bubble"]{overflow-wrap:anywhere}
+.bt-uhost :is(pre,table){max-width:100%;overflow-x:auto}
+.bt-uhost pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}

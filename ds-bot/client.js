@@ -20765,6 +20765,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-ububble [class*="_markdown"],.bt-ububble a{color:inherit!important}
 .bt-ububble p{margin:0;line-height:inherit}
+.bt-ububble :is(pre,table){max-width:100%;overflow-x:auto}
+.bt-ububble pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
@@ -31882,6 +31884,13 @@ var USER_MESSAGE_CSS = `
    under the stack, at its right edge. */
 .bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
 .bt-uhost [class*="_userStack"]{max-width:100%}
+/* Nothing a message holds may widen it past its column: the stack aligns to the right,
+   so a wider child would spill out to the left over the chat. Long lines wrap; a code
+   block or table that still does not fit scrolls inside the bubble. */
+.bt-uhost>.bt-fold-body,.bt-uhost [class*="_userStack"]>*,.bt-uhost [class*="_bubble"]{max-width:100%;min-width:0;box-sizing:border-box}
+.bt-uhost [class*="_bubble"]{overflow-wrap:anywhere}
+.bt-uhost :is(pre,table){max-width:100%;overflow-x:auto}
+.bt-uhost pre{white-space:pre-wrap;overflow-wrap:anywhere}
 .bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
