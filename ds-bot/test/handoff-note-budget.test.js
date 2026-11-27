@@ -28,7 +28,9 @@ function* chunksOf(reply) {
 
 // A Bot's own chat part with the note writer around it. `replies` are answered in
 // order by the model stream; `info` holds resolveModelInfo per route.
-async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, history, folder = false }) {
+// `busy`: a turn starts right after the idle that starts the check. `duringNote`: runs
+// when the note is asked for, with the part's agent and ctx, while the switch runs.
+async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, history, folder = false, busy = false, duringNote }) {
   const requests = []
   const warnings = []
   const infos = []
@@ -53,6 +55,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
     stream: (options) => {
       const prompt = options.messages.at(-1).content.map(block => block.text).join('')
       requests.push({ provider: options.provider, model: options.model, reasoningEffort: options.reasoningEffort, maxTokens: options.maxTokens, prompt })
+      duringNote?.({ agent, ctx })
       const reply = queue.shift()
       if (reply === undefined) throw new Error('no reply left for the note')
       if (reply instanceof Error) throw reply
@@ -110,6 +113,7 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
     roomOwners: new Map(),
     teamTools: [],
     live: new Map(),
+    liveOf: id => { if (!rt.live.has(id)) rt.live.set(id, {}); return rt.live.get(id) },
     groupSessionsOf: () => [],
     unreadOf: () => [],
     clock: () => 'now',
@@ -163,11 +167,12 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   partsInstall(rt)
   if (folder) await rt.followFolder({ botId: 'b1' })
   else ctx.emit('agent/status', { agent, status: 'idle' })
+  if (busy) agent.status = 'running'
   for (let at = 0; at < 100 && bot.sessionId !== 's2' && !warnings.some(line => /did not move on/.test(line)); at += 1) {
     await new Promise(done => setTimeout(done, 10))
   }
   const packageText = followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
-  return { bot, requests, warnings, infos, packageText, selected, defaultCalls: () => defaultCalls }
+  return { bot, requests, warnings, infos, packageText, followed, selected, defaultCalls: () => defaultCalls }
 }
 
 test('a folder handoff capped before the Session start writes a note instead of claiming whole history', async () => {
@@ -294,4 +299,27 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
     retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 },
   })
   assert.equal(capped.requests.length, 2)
+})
+
+// A message that starts the next turn while the turn-end check decides must not meet a
+// switch that tells the fresh part nothing waits: the Bot would drop that turn's work.
+test('a turn that starts while the turn-end check runs is not switched away under it', async () => {
+  const { bot, requests } = await switchPart({ replies: [{ text: note('kept') }], busy: true })
+  assert.equal(bot.sessionId, 's1')
+  assert.equal(requests.length, 0)
+})
+
+test('a switch that stops a turn already under way tells the fresh part to go on with it', async () => {
+  let decision
+  const { bot, packageText } = await switchPart({
+    replies: [{ text: note('kept') }],
+    duringNote: ({ agent, ctx }) => {
+      if (decision !== undefined) return
+      decision = ctx.listeners.get('agent/pre-step')[0]({ agent, messages: [], step: 2, signal: new AbortController().signal }, async () => ({ kind: 'enter', messages: [] }))
+    },
+  })
+  assert.equal(bot.sessionId, 's2')
+  assert.deepEqual(await decision, { kind: 'reject' })
+  assert.match(packageText, /You were in the middle of a turn\. Go on with it now/)
+  assert.doesNotMatch(packageText, /Nothing needs an answer now/)
 })

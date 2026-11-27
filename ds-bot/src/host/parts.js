@@ -1184,7 +1184,7 @@ export function install(rt) {
         // input this part kept, so it is added once.
         const back = job.carry.splice(0)
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
-        if (resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
+        if (job.resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
             content: [{ type: 'text', text: PAUSE_NOTE }],
@@ -1492,10 +1492,7 @@ export function install(rt) {
     if (place === undefined) return next()
     adoptCompaction(agent)
     const job = switches.get(agent.id)
-    if (job !== undefined) {
-      job.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (job !== undefined) return joinSwitch(agent, job, payload)
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
       freshParts.delete(agent.id)
@@ -1519,14 +1516,26 @@ export function install(rt) {
     return switchBeforeStep(agent, payload, { hard: true })
   }, { prepend: true })
 
+  // A step of a part whose switch already runs: the switch carries its input. A switch
+  // begun between turns may meet a turn that started meanwhile; the fresh part goes on
+  // with that turn, as if the switch had begun at this step, instead of being told
+  // that nothing waits.
+  function joinSwitch(agent, job, payload) {
+    job.carry.push(...payload.messages)
+    const entry = rt.liveOf(agent.id)
+    if (!job.resume && job.moved !== true && (payload.step > 1 || entry.carried === true)) {
+      entry.switched = true
+      Object.assign(job, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])] })
+      job.resumeOrigin ??= rt.holdImOrigin?.(agent.id)
+    }
+    return takeOverStep(agent, payload)
+  }
+
   // `messages` left the inbox for this step, so the switch carries them along.
   function switchBeforeStep(agent, payload, options) {
     // A switch may have started while the checks above awaited.
     const running = switches.get(agent.id)
-    if (running !== undefined) {
-      running.carry.push(...payload.messages)
-      return takeOverStep(agent, payload)
-    }
+    if (running !== undefined) return joinSwitch(agent, running, payload)
     const entry = rt.liveOf(agent.id)
     // A turn carried through a steer cut keeps its trigger and joined work, so
     // its first step is already the middle of a turn for the folder check.
@@ -1720,6 +1729,10 @@ export function install(rt) {
       }
       if (switches.has(agent.id)) return
       if (!await canMakeRoom(agent)) return
+      // A message may have started the next turn while the steward decided. A switch
+      // begun now would stop that turn at its next step and tell the fresh part that
+      // nothing waits; the turn's own pre-step check moves it on mid-turn instead.
+      if (agent.status !== 'idle') return
       startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
     } finally {
       checking.delete(agent.id)
