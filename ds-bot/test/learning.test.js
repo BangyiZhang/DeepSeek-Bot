@@ -1002,3 +1002,72 @@ test('a learning review retries TRANSPORT and TIMEOUT failures on the same route
   assert.equal(proposals[0].name, 'release-checks')
   assert.equal(runtime.learningState().pending?.b2, undefined)
 })
+
+// "Always allow" on a skill card and a Main Bot's review
+// (docs/plans/2026-11-27-skill-proposal-review.md).
+const reviewTool = runtime => runtime.rt.teamTools.find(tool => tool.name === 'review_skill_proposal')
+const review = (runtime, botId, args) => reviewTool(runtime).execute(args, { agent: { id: botId } })
+const updateReply = JSON.stringify({ action: 'update', name: 'release-checks', description: 'Use when checking a release.', content: 'Run the release checks twice.', why: 'The checks were run twice.' })
+
+test('"Always allow" approves the card, and the Bot\'s next skill proposal applies on its own', async t => {
+  const history = { b2: [...ownChat] }
+  const runtime = await startRuntime({ history, replies: [createReply, updateReply] })
+  t.after(() => runtime.stop())
+  await finishTurn(runtime.ctx)
+  await until(() => Object.keys(runtime.learningState().proposals ?? {}).length === 1)
+  const proposal = (await runtime.call('state')).value.learning.b2[0]
+  assert.equal((await runtime.call('learning-always', { id: proposal.id })).value.applied, true)
+  assert.equal(runtime.teamState().bots.b2.learningAlways, true)
+  assert.equal(runtime.learningState().settled[proposal.id].decidedBy.kind, 'user')
+
+  addNextTurn(history)
+  await finishTurn(runtime.ctx)
+  await until(() => runtime.teamState().capabilities.items['release-checks']?.content === 'Run the release checks twice.')
+  const settled = Object.values(runtime.learningState().settled).filter(entry => entry.action === 'update')
+  assert.deepEqual(settled.map(entry => [entry.outcome, entry.decidedBy.kind]), [['approved', 'always']])
+  assert.deepEqual(runtime.learningState().proposals, {})
+
+  await runtime.call('learning-always-off', { botId: 'b2' })
+  assert.equal(runtime.teamState().bots.b2.learningAlways, undefined)
+})
+
+test('with Main Bot review on, another Bot\'s skill proposal goes to a Main Bot, who decides with a reason', async t => {
+  const seed = { ...TEAM, prefs: { learningMainReview: true } }
+  const runtime = await startRuntime({ seed, replies: [createReply] })
+  t.after(() => runtime.stop())
+  const delivered = []
+  runtime.rt.deliver = async args => { delivered.push(args) }
+  await finishTurn(runtime.ctx)
+  await until(() => delivered.length === 1)
+  const proposal = (await runtime.call('state')).value.learning.b2[0]
+  assert.equal(delivered[0].toId, 'm1')
+  assert.equal(delivered[0].role, 'skill-review')
+  assert.match(delivered[0].text, new RegExp(`review_skill_proposal \\(proposal: "${proposal.id}"\\)`))
+  assert.match(delivered[0].text, /Run the release checks\./)
+  assert.equal(proposal.reviewerName, 'Chief')
+
+  assert.match(await review(runtime, 'b2', { proposal: proposal.id, approve: true, reason: 'Mine.' }), /Only a Main Bot/)
+  assert.match(await review(runtime, 'm1', { proposal: proposal.id, approve: true, reason: '' }), /short reason/)
+  assert.match(await review(runtime, 'm1', { proposal: proposal.id, approve: true, reason: 'A general release step.' }), /^Approved/)
+  assert.ok(runtime.teamState().capabilities.items['release-checks'])
+  const settled = runtime.learningState().settled[proposal.id]
+  assert.deepEqual([settled.outcome, settled.decidedBy], ['approved', { kind: 'bot', botId: 'm1', name: 'Chief', reason: 'A general release step.' }])
+  assert.match(await review(runtime, 'm1', { proposal: proposal.id, approve: false, reason: 'Late.' }), /no longer open/)
+})
+
+test('a Main Bot\'s own skill proposal is never sent to itself, and review off leaves cards to the user', async t => {
+  const seed = { ...TEAM, prefs: { learningMainReview: true } }
+  const runtime = await startRuntime({ seed, replies: [createReply] })
+  t.after(() => runtime.stop())
+  const delivered = []
+  runtime.rt.deliver = async args => { delivered.push(args) }
+  await finishTurn(runtime.ctx, { id: 'm1' })
+  await until(() => Object.keys(runtime.learningState().proposals ?? {}).length === 1)
+  await settle()
+  assert.deepEqual(delivered, [])
+  const proposal = Object.values(runtime.learningState().proposals)[0]
+  assert.match(await review(runtime, 'm1', { proposal: proposal.id, approve: true, reason: 'Fine.' }), /own proposal/)
+
+  await runtime.call('set-prefs', { learningMainReview: false })
+  assert.equal(runtime.teamState().prefs?.learningMainReview, undefined)
+})

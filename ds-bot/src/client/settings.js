@@ -331,7 +331,9 @@ function GeneralPage({ roster, actions, run, dsh, openAdvanced = 0 }) {
     h(SetSection, { key: 'approvals', title: t('Approvals') },
       h(SetRow, { label: t('Reject unanswered approvals'), hint: t('A Bot waiting for your approval goes on without the step after this long. It is never allowed on its own.') },
         h('select', { className: 'bt-select', 'aria-label': t('Reject unanswered approvals'), value: String(approvalTimeoutOf(prefs)), onChange: event => run(actions.setPrefs({ approvalTimeout: Number(event.target.value) })) },
-          APPROVAL_TIMEOUTS.map(minutes => h('option', { key: minutes, value: String(minutes) }, minutes === 0 ? t('Never') : t('After {n} min', { n: minutes })))))),
+          APPROVAL_TIMEOUTS.map(minutes => h('option', { key: minutes, value: String(minutes) }, minutes === 0 ? t('Never') : t('After {n} min', { n: minutes }))))),
+      h(SetRow, { label: t('Main Bot reviews skill updates'), hint: t("A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.") },
+        h(Switch, { label: t('Main Bot reviews skill updates'), on: prefs.learningMainReview === true, onChange: learningMainReview => run(actions.setPrefs({ learningMainReview })) }))),
     h(LocationsSection, { key: 'places', actions, run }),
     h(SetSection, { key: 'more', className: 'bt-dsh-items' },
       h('button', {

@@ -343,6 +343,15 @@ var JA = {
   "Skill instructions": "スキルの指示",
   "New skill": "新しいスキル",
   "Awaiting approval": "承認待ち",
+  "Always allow": "常に許可",
+  "Approve, and add this Bot's later skill updates without asking": "承認し、この Bot の今後のスキル更新は確認なしで追加する",
+  "Approved automatically": "自動で承認済み",
+  "Approved by {name}": "{name} が承認",
+  "Declined by {name}": "{name} が却下",
+  "{name} is reviewing": "{name} が確認中",
+  "Skill updates this Bot proposes": "この Bot が提案するスキル更新",
+  "Main Bot reviews skill updates": "メイン Bot がスキル更新を確認",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "メイン Bot が他の Bot の提案したスキルを承認または却下し、カードに理由が表示されます。AGENTS.md の変更は引き続きあなたの承認を待ちます。",
   "Added": "追加",
   "Modified": "変更",
   "Show all {count} lines": "全 {count} 行を表示",
@@ -3152,6 +3161,15 @@ var KO = {
   "Skill instructions": "스킬 지침",
   "New skill": "새 스킬",
   "Awaiting approval": "승인 대기 중",
+  "Always allow": "항상 허용",
+  "Approve, and add this Bot's later skill updates without asking": "승인하고 이 봇의 이후 스킬 업데이트는 묻지 않고 추가",
+  "Approved automatically": "자동 승인됨",
+  "Approved by {name}": "{name}이(가) 승인함",
+  "Declined by {name}": "{name}이(가) 거절함",
+  "{name} is reviewing": "{name} 검토 중",
+  "Skill updates this Bot proposes": "이 봇이 제안하는 스킬 업데이트",
+  "Main Bot reviews skill updates": "메인 봇이 스킬 업데이트를 검토",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "메인 봇이 다른 봇이 제안한 스킬을 승인하거나 거절하고, 카드에 그 이유가 표시됩니다. AGENTS.md 변경은 계속 당신의 승인을 기다립니다.",
   Added: "추가됨",
   Modified: "수정됨",
   "Show all {count} lines": "{count}줄 모두 표시",
@@ -6004,6 +6022,15 @@ var ES = {
   "Skill instructions": "Instrucciones de la habilidad",
   "New skill": "Nueva habilidad",
   "Awaiting approval": "Esperando aprobación",
+  "Always allow": "Permitir siempre",
+  "Approve, and add this Bot's later skill updates without asking": "Aprobar y añadir sin preguntar las próximas actualizaciones de habilidades de este Bot",
+  "Approved automatically": "Aprobado automáticamente",
+  "Approved by {name}": "Aprobado por {name}",
+  "Declined by {name}": "Rechazado por {name}",
+  "{name} is reviewing": "{name} está revisando",
+  "Skill updates this Bot proposes": "Actualizaciones de habilidades que propone este Bot",
+  "Main Bot reviews skill updates": "El Bot principal revisa las actualizaciones de habilidades",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "Un Bot principal aprueba o rechaza las habilidades que proponen los demás Bots, y la tarjeta muestra su motivo. Los cambios de AGENTS.md siguen esperándote.",
   Added: "Añadido",
   Modified: "Modificado",
   "Show all {count} lines": "Mostrar las {count} líneas",
@@ -8854,6 +8881,15 @@ var FR = {
   "Skill instructions": "Instructions de la compétence",
   "New skill": "Nouvelle compétence",
   "Awaiting approval": "En attente d’approbation",
+  "Always allow": "Toujours autoriser",
+  "Approve, and add this Bot's later skill updates without asking": "Approuver et ajouter sans demander les prochaines mises à jour de compétences de ce Bot",
+  "Approved automatically": "Approuvé automatiquement",
+  "Approved by {name}": "Approuvé par {name}",
+  "Declined by {name}": "Refusé par {name}",
+  "{name} is reviewing": "{name} examine",
+  "Skill updates this Bot proposes": "Mises à jour de compétences proposées par ce Bot",
+  "Main Bot reviews skill updates": "Le Bot principal examine les mises à jour de compétences",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "Un Bot principal approuve ou refuse les compétences proposées par les autres Bots, et la carte affiche sa raison. Les modifications d’AGENTS.md attendent toujours ta décision.",
   "Added": "Ajouté",
   "Modified": "Modifié",
   "Show all {count} lines": "Afficher les {count} lignes",
@@ -11663,6 +11699,15 @@ var DE = {
   "Skill instructions": "Skill-Anweisungen",
   "New skill": "Neuer Skill",
   "Awaiting approval": "Wartet auf Freigabe",
+  "Always allow": "Immer erlauben",
+  "Approve, and add this Bot's later skill updates without asking": "Freigeben und spätere Skill-Updates dieses Bots ohne Nachfrage übernehmen",
+  "Approved automatically": "Automatisch freigegeben",
+  "Approved by {name}": "Von {name} freigegeben",
+  "Declined by {name}": "Von {name} abgelehnt",
+  "{name} is reviewing": "{name} prüft",
+  "Skill updates this Bot proposes": "Skill-Updates, die dieser Bot vorschlägt",
+  "Main Bot reviews skill updates": "Main Bot prüft Skill-Updates",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "Ein Main Bot gibt die Skills, die andere Bots vorschlagen, frei oder lehnt sie ab, und die Karte zeigt seine Begründung. AGENTS.md-Änderungen warten weiter auf dich.",
   Added: "Hinzugefügt",
   Modified: "Geändert",
   "Show all {count} lines": "Alle {count} Zeilen anzeigen",
@@ -14563,6 +14608,15 @@ var ZH = {
   "Skill instructions": "技能说明",
   "New skill": "新技能",
   "Awaiting approval": "等待批准",
+  "Always allow": "始终允许",
+  "Approve, and add this Bot's later skill updates without asking": "批准，并且以后这个 Bot 的技能更新不再询问",
+  "Approved automatically": "已自动批准",
+  "Approved by {name}": "{name} 已批准",
+  "Declined by {name}": "{name} 已拒绝",
+  "{name} is reviewing": "{name} 审批中",
+  "Skill updates this Bot proposes": "这个 Bot 提出的技能更新",
+  "Main Bot reviews skill updates": "由 Main Bot 审批技能更新",
+  "A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.": "由一个 Main Bot 批准或拒绝其他 Bot 提出的技能，卡片上会显示它的理由。AGENTS.md 的修改仍然等你批准。",
   Added: "新增",
   Modified: "已修改",
   "Show all {count} lines": "展开全部 {count} 行",
@@ -40951,11 +41005,17 @@ function ExpiredApprovalDock({ sessionId, useRoster, useWork }) {
 }
 function ApprovalRules({ bot, actions, run: run2 }) {
   const rules = bot.approvalRules ?? [];
-  if (!rules.length) return null;
+  if (!rules.length && bot.learningAlways !== true) return null;
   return (0, import_react53.createElement)(
     "div",
     { className: "bt-ap-rules" },
     (0, import_react53.createElement)("div", { className: "bt-ap-rules-title" }, t("Always allowed")),
+    bot.learningAlways === true ? (0, import_react53.createElement)(
+      "div",
+      { key: "learning", className: "bt-ap-rule" },
+      (0, import_react53.createElement)("span", { className: "bt-ap-scope" }, t("Skill updates this Bot proposes")),
+      (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.learningAlwaysOff(bot.id)) }, t("Remove"))
+    ) : null,
     rules.map((rule) => (0, import_react53.createElement)(
       "div",
       { key: rule.id, className: "bt-ap-rule" },
@@ -44371,6 +44431,11 @@ function GeneralPage({ roster, actions, run: run2, dsh, openAdvanced = 0 }) {
           { className: "bt-select", "aria-label": t("Reject unanswered approvals"), value: String(approvalTimeoutOf(prefs)), onChange: (event) => run2(actions.setPrefs({ approvalTimeout: Number(event.target.value) })) },
           APPROVAL_TIMEOUTS.map((minutes) => (0, import_react66.createElement)("option", { key: minutes, value: String(minutes) }, minutes === 0 ? t("Never") : t("After {n} min", { n: minutes })))
         )
+      ),
+      (0, import_react66.createElement)(
+        SetRow,
+        { label: t("Main Bot reviews skill updates"), hint: t("A Main Bot approves or declines the skills other Bots propose, and the card shows its reason. AGENTS.md changes still wait for you.") },
+        (0, import_react66.createElement)(Switch, { label: t("Main Bot reviews skill updates"), on: prefs.learningMainReview === true, onChange: (learningMainReview) => run2(actions.setPrefs({ learningMainReview })) })
       )
     ),
     (0, import_react66.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
@@ -53802,12 +53867,12 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   const [open, setOpen] = (0, import_react89.useState)(false);
   const busyRef = (0, import_react89.useRef)(false);
   const titleId = (0, import_react89.useId)();
-  const answer = (approve) => {
+  const answer = (approve, { always: always2 = false } = {}) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setError("");
-    void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve)).then(() => onResolved(proposal.id), (failure) => {
+    void Promise.resolve().then(() => always2 ? actions.learningAlways(proposal.id) : actions.learningAnswer(proposal.id, approve)).then(() => onResolved(proposal.id), (failure) => {
       setError(failure?.message ?? String(failure));
       onFailure(proposal, failure);
     }).finally(() => {
@@ -53817,6 +53882,7 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   };
   const update = proposal.action === "update";
   const agents = proposal.kind === "agents";
+  const always = () => answer(true, { always: true });
   const rows2 = (0, import_react89.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   const change = agents ? [
     (0, import_react89.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
@@ -53836,22 +53902,28 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
         { type: "button", className: "bt-learning-fold", "aria-expanded": open, onClick: () => setOpen(!open) },
         (0, import_react89.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react89.createElement)(agents ? PencilIcon : MemoryIcon)),
         (0, import_react89.createElement)("span", { className: "bt-learning-kind" }, kind),
-        (0, import_react89.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
+        (0, import_react89.createElement)("span", { className: "bt-learning-sum" }, `${decidedText(outcome, proposal.decidedBy)} · ${what}`)
       ),
-      open ? change : null
+      open ? [...change, proposal.decidedBy?.kind === "bot" && proposal.decidedBy.reason ? (0, import_react89.createElement)("p", { className: "bt-learning-why", key: "decided" }, proposal.decidedBy.reason) : null] : null
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
   return (0, import_react89.createElement)(
     "section",
     { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    agents ? (0, import_react89.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react89.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+    agents ? (0, import_react89.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react89.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail, reviewer: proposal.reviewerName }),
     change,
     error ? (0, import_react89.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    (0, import_react89.createElement)(ProposalFoot, { busy, answer })
+    (0, import_react89.createElement)(ProposalFoot, { busy, answer, always: agents ? void 0 : always })
   );
 }
-function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
+function decidedText(outcome, by) {
+  const done = t(outcome === "approved" ? "Approved" : "Declined");
+  if (by?.kind === "always") return t("Approved automatically");
+  if (by?.kind === "bot") return t(outcome === "approved" ? "Approved by {name}" : "Declined by {name}", { name: by.name ?? t("Main Bot") });
+  return done;
+}
+function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail, reviewer }) {
   return (0, import_react89.createElement)(
     "div",
     { className: "bt-q-head" },
@@ -53864,14 +53936,15 @@ function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, 
       oldDetail ? (0, import_react89.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react89.createElement)("del", null, oldDetail)) : null,
       detail ? (0, import_react89.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    (0, import_react89.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react89.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    (0, import_react89.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react89.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), reviewer ? t("{name} is reviewing", { name: reviewer }) : t("Awaiting approval"))
   );
 }
-function ProposalFoot({ busy, answer }) {
+function ProposalFoot({ busy, answer, always }) {
   return (0, import_react89.createElement)(
     "div",
     { className: "bt-q-foot bt-learning-foot" },
     (0, import_react89.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
+    always ? (0, import_react89.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-always", disabled: busy, title: t("Approve, and add this Bot's later skill updates without asking"), onClick: always }, t("Always allow")) : null,
     (0, import_react89.createElement)(
       "button",
       { type: "button", className: "bt-learning-btn bt-learning-approve", disabled: busy, onClick: () => answer(true) },
@@ -54032,6 +54105,8 @@ var LEARNING_CSS = `
 .bt-learning-decline:hover:not(:disabled){background:var(--bt-hover)}
 .bt-learning-approve{padding-left:13px;background:var(--bt-accent);color:var(--bt-accent-ink)}
 .bt-learning-approve:hover:not(:disabled){opacity:.86}
+.bt-learning-always{background:transparent;box-shadow:inset 0 0 0 1px var(--bt-line-2);color:var(--bt-ink)}
+.bt-learning-always:hover:not(:disabled){background:var(--bt-hover)}
 .bt-learning-btn:disabled{opacity:.45;cursor:default}
 .bt-learning-btn:active:not(:disabled){scale:.96}
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
@@ -55474,6 +55549,8 @@ function apply(ctx) {
       openChangesReview(changes);
     },
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
+    learningAlways: (id) => after(call("learning-always", { id })),
+    learningAlwaysOff: (botId) => after(call("learning-always-off", { botId })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),

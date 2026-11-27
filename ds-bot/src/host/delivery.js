@@ -41,6 +41,7 @@ export function install(rt) {
     if (role === 'secret') return '[Secret card]'
     if (role === 'desktop-update') return '[Desktop application update receipt]'
     if (role === 'durable') return '[Durable task update]'
+    if (role === 'skill-review') return '[Skill proposal to review]'
     if (role === 'task') return `[Background task · ${note}]`
     if (role === 'task-followup') return `[Follow-up from your own chat · ${note}]`
     if (role === 'task-report') return `[Background task report · ${note}${goesOn}]`

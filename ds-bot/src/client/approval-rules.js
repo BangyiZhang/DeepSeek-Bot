@@ -96,9 +96,12 @@ export function ExpiredApprovalDock({ sessionId, useRoster, useWork }) {
 // The Bot's rules, under its permissions in its details.
 export function ApprovalRules({ bot, actions, run }) {
   const rules = bot.approvalRules ?? []
-  if (!rules.length) return null
+  if (!rules.length && bot.learningAlways !== true) return null
   return h('div', { className: 'bt-ap-rules' },
     h('div', { className: 'bt-ap-rules-title' }, t('Always allowed')),
+    bot.learningAlways === true ? h('div', { key: 'learning', className: 'bt-ap-rule' },
+      h('span', { className: 'bt-ap-scope' }, t('Skill updates this Bot proposes')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.learningAlwaysOff(bot.id)) }, t('Remove'))) : null,
     rules.map(rule => h('div', { key: rule.id, className: 'bt-ap-rule' },
       h('span', { className: 'bt-ap-scope', title: scopeText(rule).title }, scopeText(rule).label),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.removeApprovalRule(bot.id, rule.id)) }, t('Remove')))))

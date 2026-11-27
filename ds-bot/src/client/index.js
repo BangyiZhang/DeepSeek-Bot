@@ -609,6 +609,8 @@ export function apply(ctx) {
       openChangesReview(changes)
     },
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
+    learningAlways: id => after(call('learning-always', { id })),
+    learningAlwaysOff: botId => after(call('learning-always-off', { botId })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),

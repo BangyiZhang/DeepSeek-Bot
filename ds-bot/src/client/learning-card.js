@@ -64,12 +64,12 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
   const [open, setOpen] = useState(false)
   const busyRef = useRef(false)
   const titleId = useId()
-  const answer = approve => {
+  const answer = (approve, { always = false } = {}) => {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
     setError('')
-    void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve))
+    void Promise.resolve().then(() => (always ? actions.learningAlways(proposal.id) : actions.learningAnswer(proposal.id, approve)))
       .then(() => onResolved(proposal.id), failure => {
         setError(failure?.message ?? String(failure))
         onFailure(proposal, failure)
@@ -81,6 +81,7 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
   }
   const update = proposal.action === 'update'
   const agents = proposal.kind === 'agents'
+  const always = () => answer(true, { always: true })
   const rows = useMemo(() => lineDiff(update ? proposal.previous?.content : '', proposal.content), [update, proposal.previous?.content, proposal.content])
   const change = agents
     ? [
@@ -98,20 +99,28 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
       h('button', { type: 'button', className: 'bt-learning-fold', 'aria-expanded': open, onClick: () => setOpen(!open) },
         h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(agents ? PencilIcon : MemoryIcon)),
         h('span', { className: 'bt-learning-kind' }, kind),
-        h('span', { className: 'bt-learning-sum' }, `${t(outcome === 'approved' ? 'Approved' : 'Declined')} · ${what}`)),
-      open ? change : null)
+        h('span', { className: 'bt-learning-sum' }, `${decidedText(outcome, proposal.decidedBy)} · ${what}`)),
+      open ? [...change, proposal.decidedBy?.kind === 'bot' && proposal.decidedBy.reason ? h('p', { className: 'bt-learning-why', key: 'decided' }, proposal.decidedBy.reason) : null] : null)
   }
   const oldDetail = update && typeof proposal.previous?.description === 'string' && proposal.previous.description !== proposal.description ? proposal.previous.description : undefined
   return h('section', { className: 'bt-q bt-learning-card', role: 'group', 'aria-labelledby': titleId, 'aria-busy': busy },
     agents
       ? h(ProposalHead, { titleId, icon: PencilIcon, title: kind })
-      : h(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+      : h(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail, reviewer: proposal.reviewerName }),
     change,
     error ? h('div', { className: 'bt-learning-error', role: 'alert' }, error) : null,
-    h(ProposalFoot, { busy, answer }))
+    h(ProposalFoot, { busy, answer, always: agents ? undefined : always }))
 }
 
-function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDetail }) {
+// How an answered card ended, and who decided when it was not the user.
+function decidedText(outcome, by) {
+  const done = t(outcome === 'approved' ? 'Approved' : 'Declined')
+  if (by?.kind === 'always') return t('Approved automatically')
+  if (by?.kind === 'bot') return t(outcome === 'approved' ? 'Approved by {name}' : 'Declined by {name}', { name: by.name ?? t('Main Bot') })
+  return done
+}
+
+function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDetail, reviewer }) {
   return h('div', { className: 'bt-q-head' },
     h('span', { className: 'bt-learning-icon', 'aria-hidden': true }, h(icon)),
     h('div', { className: 'bt-q-text' },
@@ -119,12 +128,15 @@ function ProposalHead({ titleId, icon = MemoryIcon, title, kind, detail, oldDeta
       kind ? h('div', { className: 'bt-q-detail' }, kind) : null,
       oldDetail ? h('p', { className: 'bt-learning-description bt-learning-old' }, h('del', null, oldDetail)) : null,
       detail ? h('p', { className: 'bt-learning-description' }, detail) : null),
-    h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval')))
+    h('span', { className: 'bt-q-badge bt-learning-status' }, h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), reviewer ? t('{name} is reviewing', { name: reviewer }) : t('Awaiting approval')))
 }
 
-function ProposalFoot({ busy, answer }) {
+// "Always allow" is offered for skills only: an AGENTS.md change reaches every Bot that
+// works in the folder, so each one waits for the user.
+function ProposalFoot({ busy, answer, always }) {
   return h('div', { className: 'bt-q-foot bt-learning-foot' },
     h('button', { type: 'button', className: 'bt-learning-btn bt-learning-decline', disabled: busy, onClick: () => answer(false) }, t('Decline')),
+    always ? h('button', { type: 'button', className: 'bt-learning-btn bt-learning-always', disabled: busy, title: t("Approve, and add this Bot's later skill updates without asking"), onClick: always }, t('Always allow')) : null,
     h('button', { type: 'button', className: 'bt-learning-btn bt-learning-approve', disabled: busy, onClick: () => answer(true) },
       h(CheckIcon), t('Approve')))
 }
@@ -273,6 +285,8 @@ export const LEARNING_CSS = `
 .bt-learning-decline:hover:not(:disabled){background:var(--bt-hover)}
 .bt-learning-approve{padding-left:13px;background:var(--bt-accent);color:var(--bt-accent-ink)}
 .bt-learning-approve:hover:not(:disabled){opacity:.86}
+.bt-learning-always{background:transparent;box-shadow:inset 0 0 0 1px var(--bt-line-2);color:var(--bt-ink)}
+.bt-learning-always:hover:not(:disabled){background:var(--bt-hover)}
 .bt-learning-btn:disabled{opacity:.45;cursor:default}
 .bt-learning-btn:active:not(:disabled){scale:.96}
 .bt-learning-btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}

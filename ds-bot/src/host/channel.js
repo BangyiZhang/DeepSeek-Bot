@@ -247,6 +247,10 @@ export function install(rt) {
       else if (TIMEOUT_CHOICES.includes(body.approvalTimeout)) state.prefs.approvalTimeout = body.approvalTimeout
       else throw invalid(`Approval timeout must be one of ${TIMEOUT_CHOICES.join(', ')} minutes`)
     }
+    if (body.learningMainReview !== undefined) {
+      if (body.learningMainReview === true) state.prefs.learningMainReview = true
+      else delete state.prefs.learningMainReview
+    }
     if (body.backgroundAfterSec !== undefined) {
       const seconds = body.backgroundAfterSec
       if (seconds === null) delete state.prefs.backgroundAfterSec
@@ -679,6 +683,8 @@ export function install(rt) {
           await rt.load()
           return ok(await rt.memoryEndpoint(endpoint, body))
         case 'learning-answer':
+        case 'learning-always':
+        case 'learning-always-off':
           await rt.load()
           return ok(await rt.learningEndpoint(endpoint, body))
         // The mobile API (mobile.js).
