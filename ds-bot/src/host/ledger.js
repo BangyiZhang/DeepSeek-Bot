@@ -10,9 +10,10 @@
 // queue per book. A window that only reads the team follows the file another host
 // writes: it reads a book again when the file has grown.
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { appendFile, mkdir, rm } from 'node:fs/promises'
+import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
 
@@ -55,6 +56,23 @@ export function install(rt) {
     const bySeq = new Map()
     for (const record of records) if (Number.isInteger(record.seq)) bySeq.set(record.seq, record)
     return bySeq
+  }
+  // What range and anchorAt look up, built on first use. An append adds to it; anything
+  // else that changes the records drops it.
+  const note = (view, record, at) => {
+    if (Number.isInteger(record.seq)) {
+      if (record.seq <= view.last) view.ascending = false
+      view.first = Math.min(view.first, record.seq)
+      view.last = Math.max(view.last, record.seq)
+    }
+    if (record.event === 'anchor' && !view.anchors.has(record.id)) view.anchors.set(record.id, at)
+  }
+  const viewOf = (entry) => {
+    if (entry.view !== undefined) return entry.view
+    const view = { ascending: true, first: Infinity, last: -Infinity, anchors: new Map() }
+    entry.records.forEach((record, at) => note(view, record, at))
+    entry.view = view
+    return view
   }
   const sizeOf = (book) => {
     try { return statSync(pathOf(book)).size } catch { return -1 }
@@ -105,6 +123,7 @@ export function install(rt) {
     const entry = open(book)
     entry.records.push(record)
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
+    if (entry.view !== undefined) note(entry.view, record, entry.records.length - 1)
     if (!writes()) return record
     const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
     entry.torn = false
@@ -121,7 +140,9 @@ export function install(rt) {
       if (books.get(book) !== entry) return
       const at = entry.records.indexOf(record)
       if (at !== -1) entry.records.splice(at, 1)
-      if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
+      entry.view = undefined
+      // An earlier record may hold the same seq; range walks bySeq, so it must find that one.
+      if (Number.isInteger(record.seq) && entry.bySeq.get(record.seq) === record) entry.bySeq = index(entry.records)
       entry.torn = true
     }))
     return record
@@ -131,6 +152,45 @@ export function install(rt) {
   const flush = async (book) => {
     if (book !== undefined) return writing.get(book)
     await Promise.all(writing.values())
+  }
+
+  // Prepends earlier records before what the book already holds, once, oldest first.
+  function prepend(book, records) {
+    const entry = open(book)
+    const added = []
+    const seen = new Set()
+    for (const record of records) {
+      if (!Number.isInteger(record?.seq) || entry.bySeq.has(record.seq) || seen.has(record.seq)) continue
+      seen.add(record.seq)
+      added.push(record)
+    }
+    if (added.length === 0) return 0
+    added.sort((a, b) => a.seq - b.seq)
+    entry.records = [...added, ...entry.records]
+    entry.view = undefined
+    for (const record of added) entry.bySeq.set(record.seq, record)
+    if (!writes()) return added.length
+    const wasTorn = entry.torn
+    const snapshot = entry.records.map(record => `${JSON.stringify(record)}\n`).join('')
+    entry.torn = false
+    entry.size = Buffer.byteLength(snapshot)
+    const run = (writing.get(book) ?? Promise.resolve()).then(async () => {
+      await mkdir(dir, { recursive: true })
+      const temp = `${pathOf(book)}.${process.pid}.tmp`
+      await writeFile(temp, snapshot, 'utf8')
+      await rename(temp, pathOf(book))
+    })
+    lastWrite.set(book, run)
+    writing.set(book, run.catch((error) => {
+      rt.warn('ds-bot: earlier records of %s were not written: %s', book, error?.message ?? error)
+      if (books.get(book) !== entry) return
+      const dropped = new Set(added)
+      entry.records = entry.records.filter(record => !dropped.has(record))
+      entry.view = undefined
+      for (const record of added) if (entry.bySeq.get(record.seq) === record) entry.bySeq.delete(record.seq)
+      if (wasTorn) entry.torn = true
+    }))
+    return added.length
   }
 
   function drop(book) {
@@ -143,6 +203,7 @@ export function install(rt) {
   const ledger = {
     open,
     append,
+    prepend,
     flush,
     // Rejects when the last record of the book did not reach the disk.
     written: book => lastWrite.get(book) ?? Promise.resolve(),
@@ -150,7 +211,25 @@ export function install(rt) {
     records: book => open(book).records,
     record: (book, seq) => open(book).bySeq.get(seq),
     after: (book, since) => open(book).records.filter(record => since === undefined || (Number.isInteger(record.seq) && record.seq > since)),
-    range: (book, from, to) => open(book).records.filter(record => Number.isInteger(record.seq) && record.seq >= from && (to === undefined || record.seq <= to)),
+    range: (book, from, to) => {
+      const entry = open(book)
+      const view = viewOf(entry)
+      const start = Math.max(Math.ceil(from), view.first)
+      const end = to === undefined ? view.last : Math.min(to, view.last)
+      // Walking the seqs finds the same records in the same order only while each seq is
+      // there once and in order; a sparse book is quicker to scan.
+      if (!view.ascending || end - start > entry.records.length) {
+        return entry.records.filter(record => Number.isInteger(record.seq) && record.seq >= from && (to === undefined || record.seq <= to))
+      }
+      const rows = []
+      for (let seq = start; seq <= end; seq += 1) {
+        const record = entry.bySeq.get(seq)
+        if (record !== undefined) rows.push(record)
+      }
+      return rows
+    },
+    // Where the anchor record with this id is in records(book), or -1.
+    anchorAt: (book, id) => viewOf(open(book)).anchors.get(id) ?? -1,
     lastSeq: (book) => {
       let last = 0
       for (const record of open(book).records) if (Number.isInteger(record.seq) && record.seq > last) last = record.seq
@@ -160,9 +239,12 @@ export function install(rt) {
     search: (book, query, pick = record => record.text) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
-      return open(book).records.filter((record) => {
+      const records = open(book).records
+      const lower = searchTextFor(records)
+      return records.filter((record, at) => {
         const text = pick(record)
-        return typeof text === 'string' && words.every(word => text.toLowerCase().includes(word))
+        const value = lower(at, text)
+        return typeof text === 'string' && words.every(word => value.includes(word))
       }).slice(-SEARCH_MAX).reverse()
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`

@@ -43,24 +43,28 @@ export function install(rt) {
     const sessionId = request.agent?.session?.id ?? request.agent?.id
     const owner = sessionId === undefined ? undefined : rt.groupOwners.get(sessionId)
     const task = rt.durableOwnerOf?.(sessionId)
-    const botId = owner?.botId ?? task?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
+    const taskOwner = sessionId === undefined ? undefined : rt.taskOwners?.get(sessionId)
+    const botId = owner?.botId ?? task?.botId ?? taskOwner?.botId ?? (sessionId === undefined ? undefined : rt.chatOwners.get(sessionId))
     if (botId === undefined) return next()
     const ask = askOf(String(request.toolName ?? ''), rt.callArgs?.(sessionId, request.callId) ?? {}, rt.sessionFolder?.(request.agent?.session))
-    const where = { sessionId, owner, task, botId, offer: offerOf(ask) }
+    const where = { sessionId, owner, task, taskOwner, botId, offer: offerOf(ask) }
     const rules = rt.botOf?.(botId)?.approvalRules ?? []
     if (ask === undefined || rules.length === 0) return waitFor(request, next, where)
     if (ask.kind === 'command') return rules.some(rule => ruleCovers(rule, ask)) ? 'allowed-once' : waitFor(request, next, where)
     return realAsk(ask).catch(() => undefined).then(real => (real !== undefined && rules.some(rule => ruleCovers(rule, real)) ? 'allowed-once' : waitFor(request, next, where)))
   }, { prepend: true })
 
-  function waitFor(request, next, { sessionId, owner, task, botId, offer }) {
+  function waitFor(request, next, { sessionId, owner, task, taskOwner, botId, offer }) {
+    const taskTitle = taskOwner === undefined ? undefined : rt.taskBySession?.(sessionId)?.task?.title
     const id = randomUUID()
+    const roomId = owner?.roomId ?? taskOwner?.roomId
     const entry = {
       id,
       sessionId,
       botId,
-      ...(owner ? { roomId: owner.roomId } : {}),
+      ...(roomId ? { roomId } : {}),
       ...(task ? { durable: true } : {}),
+      ...(taskOwner ? { taskId: taskOwner.taskId, ...(taskTitle ? { taskTitle } : {}) } : {}),
       tool: String(request.toolName ?? ''),
       ...(typeof request.callId === 'string' ? { callId: request.callId } : {}),
       reason: String(request.reason ?? '').slice(0, 500),
@@ -80,7 +84,8 @@ export function install(rt) {
       pending.delete(id)
       clearTimeout(timer)
       rt.noteApproval?.(sessionId, undefined)
-      emit('settled', { id, outcome, ...(entry.expired ? { expired: true } : {}) })
+      const settledTaskId = entry.taskId ?? rt.taskOwners?.get(sessionId)?.taskId
+      emit('settled', { id, outcome, ...(settledTaskId ? { taskId: settledTaskId } : {}), ...(entry.expired ? { expired: true } : {}) })
       if (entry.expired) {
         const { answer: _answer, ...shown } = entry
         expired = [...expired.filter(old => Date.now() - old.expiredAt < EXPIRED_SHOWN_MS), { ...shown, expiredAt: Date.now() }].slice(-20)
@@ -95,7 +100,7 @@ export function install(rt) {
       }, entry.expiresAt - entry.at)
       timer.unref?.()
     }
-    if (owner === undefined && task === undefined) {
+    if (owner === undefined && task === undefined && taskOwner === undefined) {
       // An own-chat approval races DSH's card. The card sees `linked`, our own
       // AbortSignal: answering here resolves the request, then withdraws the card;
       // an answer there settles `next()` first and is adopted. An abort of the
@@ -129,7 +134,11 @@ export function install(rt) {
         )
       })
     }
-    rt.yieldRoomTurn?.(sessionId)
+    if (owner !== undefined) rt.yieldRoomTurn?.(sessionId)
+    else if (taskOwner?.roomId !== undefined) {
+      const groupSid = rt.roomOf(taskOwner.roomId)?.sessions?.[botId]
+      if (groupSid !== undefined) rt.yieldRoomTurn?.(groupSid)
+    }
     return new Promise((resolve) => {
       entry.answer = (outcome) => {
         if (!settle(outcome)) return
@@ -140,7 +149,15 @@ export function install(rt) {
     })
   }
 
-  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => ({ ...entry, answerable: answer !== undefined }))
+  const approvalsView = () => [...pending.values()].map(({ answer, ...entry }) => {
+    const liveTask = entry.taskId === undefined ? rt.taskOwners?.get(entry.sessionId) : undefined
+    const liveTitle = entry.taskTitle ?? (liveTask === undefined ? undefined : rt.taskBySession?.(entry.sessionId)?.task?.title)
+    return {
+      ...entry,
+      ...(liveTask ? { taskId: liveTask.taskId, ...(liveTitle ? { taskTitle: liveTitle } : {}) } : {}),
+      answerable: answer !== undefined,
+    }
+  })
   const expiredApprovalsView = () => expired.filter(entry => Date.now() - entry.expiredAt < EXPIRED_SHOWN_MS)
   const waitsForApproval = sessionId => [...pending.values()].some(entry => entry.sessionId === sessionId)
 

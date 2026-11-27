@@ -16,7 +16,7 @@ const MIN_VALUE = 4
 const NONE = {}
 
 export const KeyIcon = () => h('svg', { width: 15, height: 15, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-  h('path', { d: 'M7 9.5a3.5 3.5 0 1 1 0 .01z' }), h('path', { d: 'M10.4 10.6L17 10.6M14.5 10.6v2.4M16.6 10.6v1.8' }))
+  h('circle', { cx: 6.75, cy: 10, r: 3.25 }), h('path', { d: 'M10 10h7M14.25 10v2.5M16.75 10v1.8' }))
 const LockIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
   h('path', { d: 'M6.5 9V7a3.5 3.5 0 0 1 7 0v2' }), h('rect', { x: 4.5, y: 9, width: 11, height: 8, rx: 2 }))
 const WarnIcon = () => h('svg', { width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -56,7 +56,7 @@ export function MaskedInput({ value, onChange, onEnter, label, autoFocus = false
     placeholder: label ?? t('Paste or type the key'),
     onChange: event => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+      if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return
       event.preventDefault()
       onEnter?.()
     },
@@ -302,7 +302,6 @@ function SecretStoreCard({ store, actions, run, Section }) {
   const field = (label, value, onChange, autoFocus) => h('label', { className: 'bt-q-field bt-secret-field' },
     h(MaskedInput, { value, onChange, label, autoFocus }))
   const row = children => h('div', { className: 'bt-secret-row-actions' }, children)
-  const hint = key => h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t(key)))
   if (locked) {
     const reason = store?.reason
     const why = reason === 'passphrase-source'
@@ -310,7 +309,7 @@ function SecretStoreCard({ store, actions, run, Section }) {
       : reason === 'wrong-passphrase'
         ? t('The passphrase in the environment or the passphrase file did not unlock the secrets.')
         : t('No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.')
-    return h(Section, { title: t('Encryption at rest') },
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       h('div', { className: 'bt-set-row bt-bs-stack' },
         h('span', { className: 'bt-set-copy' },
           h('span', { className: 'bt-bs-label' }, t('Secrets are locked')),
@@ -319,38 +318,48 @@ function SecretStoreCard({ store, actions, run, Section }) {
         row(h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t('Unlock')))))
   }
   if (mode === 'encrypted') {
-    return h(Section, { title: t('Encryption at rest') },
-      hint('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.'),
+    const desc = t('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.')
+    return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
       form === 'decrypt'
-        ? h('div', { className: 'bt-set-row bt-bs-stack' },
-          field(t('Passphrase'), passphrase, setPassphrase, true),
-          row([
-            h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-            h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
-          ]))
-        : h('div', { className: 'bt-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption'))))
+        ? [
+            h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
+            h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
+              field(t('Passphrase'), passphrase, setPassphrase, true),
+              row([
+                h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+                h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
+              ])),
+          ]
+        : h('div', { className: 'bt-set-row' },
+          h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
+          h('span', { className: 'bt-set-control' },
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption')))))
   }
-  return h(Section, { title: t('Encryption at rest') },
-    hint('Keys are stored in a file only this user can read, but the values are not encrypted.'),
+  const desc = t('Keys are stored in a file only this user can read, but the values are not encrypted.')
+  return h(Section, { title: t('Encryption at rest'), tour: 'secret-encrypt' },
     form === 'encrypt'
-      ? h('div', { className: 'bt-set-row bt-bs-stack' },
-        field(t('Passphrase (at least 8 characters)'), passphrase, setPassphrase, true),
-        field(t('Repeat the passphrase'), confirm, setConfirm),
-        confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
-        row([
-          h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
-          h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
-        ]))
-      : h('div', { className: 'bt-actions' },
-        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest'))))
+      ? [
+          h('div', { key: 'hint', className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, desc)),
+          h('div', { key: 'form', className: 'bt-set-row bt-bs-stack' },
+            field(t('Passphrase (at least 8 characters)'), passphrase, setPassphrase, true),
+            field(t('Repeat the passphrase'), confirm, setConfirm),
+            confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
+            row([
+              h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+              h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
+            ])),
+        ]
+      : h('div', { className: 'bt-set-row' },
+        h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, desc)),
+        h('span', { className: 'bt-set-control' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest')))))
 }
 
 export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
-  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', 'data-tour': 'secret-add', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
     h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
     h('p', { key: 'about', className: 'bt-secret-about' },
@@ -366,7 +375,7 @@ export function SecretsPage({ roster, actions, run, Section }) {
 export const SECRET_CSS = `
 .bt-secret-head{align-items:center;gap:10px}
 .bt-secret-who{position:relative;flex:none;display:inline-flex}
-.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
+.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
 .bt-secret-lock svg{width:11px;height:11px}
 .bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
@@ -385,18 +394,18 @@ export const SECRET_CSS = `
 [data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
 [data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
-.bt-secret-ok svg{width:13px;height:13px;color:#16a34a}
+.bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
-.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:#b25e09;background:color-mix(in srgb,#f59e0b 12%,transparent)}
+.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
 .bt-secret-done .bt-q-head{align-items:center}
 .bt-secret-done .bt-q-title{font-size:13px;line-height:18px;color:var(--bt-ink-2);font-weight:500}
 .bt-secret-scope-tag{font-weight:400;color:var(--bt-ink-3)}
-.bt-secret-check{color:var(--bt-green,#22a06b);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-secret-check{color:var(--bt-green);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 .bt-secret-done{animation:bt-secret-settle .32s cubic-bezier(.22,1,.36,1) backwards}
 @keyframes bt-secret-pop{from{opacity:0;transform:scale(.4)}}
 @keyframes bt-secret-settle{from{opacity:.4;transform:scale(.985)}}

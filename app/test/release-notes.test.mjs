@@ -128,6 +128,7 @@ test('the script stops when a package is missing, so the release is not marked L
   assert.match(run.stderr, /has no DS-Bot-0\.2\.3-win-x64\.exe$/mu)
 })
 
+// The fork keeps its own macOS-only release workflow, so this checks its shape, not upstream's.
 // A releases/latest link must never reach a release whose files are still being attached.
 test('the release becomes Latest last, after every job that attaches files', () => {
   const workflow = YAML.parse(read('../../.github/workflows/release.yml'))

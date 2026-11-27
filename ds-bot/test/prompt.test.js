@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { manualDirectory } from '../src/host/manual-skills.js'
 import { install } from '../src/host/prompt.js'
 import { install as installDurableTools } from '../src/host/durable/tools.js'
 import { fakeContext } from './fake-ctx.js'
+import { install as installBuiltinPacks, BUILTIN_PACKS } from '../src/host/builtin-packs.js'
 
 function start({ durableTasks = false } = {}) {
   const ctx = fakeContext()
@@ -53,6 +56,16 @@ test('Bots are told how to open a PDF the user attached, once, in the shared pre
     assert.match(rule[0], /never answer only that the file cannot be read/)
   }
   assert.equal(prompt('group-worker'), prompt('worker'))
+})
+
+test('every Bot can read the manual directly when no skill loader is available', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['main', 'worker', 'group-worker']) {
+    assert.ok(prompt(id).includes(JSON.stringify(join(manualDirectory(), 'SKILL.md'))))
+    assert.match(prompt(id), /if you have no skill loader, use your read tool/)
+    assert.match(prompt(id), /linked references directly/)
+  }
 })
 
 test('the group relay and non-Bot sessions do not get progress instructions', (t) => {
@@ -116,4 +129,38 @@ test('the task creation schema describes selective routing rather than forcing e
   assert.match(description, /Respect an explicit request to work directly in this chat/)
   assert.match(description, /if the recovery benefit is unclear, work there/)
   assert.doesNotMatch(description, /Use for concrete work with several steps/)
+})
+
+test('ordinary Bot prompts never direct calls to team-admin tools', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['worker', 'group-worker']) {
+    for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(!prompt(id).includes(name), name)
+    assert.match(prompt(id), /update_bot changes your own settings/)
+    assert.match(prompt(id), /change the group with update_group/)
+  }
+  for (const name of BUILTIN_PACKS['team-admin'].tools) assert.ok(prompt('main').includes(name), name)
+})
+
+test('role-dependent prompt guidance stays frozen until the next turn in both directions', (t) => {
+  const ctx = fakeContext()
+  t.after(() => ctx.dispose())
+  let main = false
+  const rt = { ctx, selfOf: id => id, botOf: () => ({ name: 'Writer' }), roomOf: () => undefined, isMain: () => main, isBotSession: () => true }
+  installBuiltinPacks(rt)
+  install(rt)
+  const prompt = () => ctx.sections.get('bot-identity').text({ agent: { id: 'worker' } })
+  const emit = type => ctx.listeners.get('session/event')[0]({ id: 'worker' }, { type })
+  for (const initial of [false, true]) {
+    main = initial
+    emit('turn/start')
+    const before = prompt()
+    main = !initial
+    assert.equal(prompt(), before)
+    emit('turn/end')
+    emit('turn/start')
+    assert.notEqual(prompt(), before)
+    assert.equal(prompt().includes('create_bot'), !initial)
+    emit('turn/end')
+  }
 })

@@ -2,6 +2,7 @@ import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Appearance, Linking, Platform, Text, useColorScheme, View } from 'react-native'
+import { takePairingFragment } from './src/team/pair-fragment.ts'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
@@ -17,6 +18,7 @@ import { Pair } from './src/screens/Pair.tsx'
 import ShellB, { LAST_KEY } from './src/nav/ShellB.tsx'
 import { listLaunchState } from './src/nav/open-chat.ts'
 import * as SecureStore from 'expo-secure-store'
+import { BrowserSession } from './src/team/BrowserSession'
 
 // Colors follow the computer's prefs plus the phone's light/dark mode. The
 // local appearance pref overrides the system scheme.
@@ -24,8 +26,9 @@ function useDark(): boolean {
   const system = useColorScheme() === 'dark'
   const [override, setOverride] = useState<string | null>(null)
   useEffect(() => {
-    void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system'))
-    return onPrefsChange(() => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')))
+    const read = () => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')).catch(() => setOverride('system'))
+    read()
+    return onPrefsChange(read)
   }, [])
   // iOS draws its bars and forms natively; they follow the app's choice, not only the system's.
   useEffect(() => {
@@ -44,8 +47,9 @@ function useLang(): string | undefined {
       setLang(next)
       setLangState(next)
     }
-    void readPrefs().then(apply)
-    return onPrefsChange(() => void readPrefs().then(apply))
+    const read = () => void readPrefs().then(apply).catch(() => apply({}))
+    read()
+    return onPrefsChange(read)
   }, [])
   return lang
 }
@@ -109,7 +113,7 @@ function Linked({ computer, identity, lang }: { computer: SavedComputer; identit
   )
 }
 
-function Boot() {
+function Boot({ lang }: { lang?: string }) {
   const { p } = useTheme()
   const [identity, setIdentity] = useState<PhoneIdentity | null>(null)
   const [computer, setComputer] = useState<SavedComputer | null | undefined>(undefined)
@@ -117,7 +121,6 @@ function Boot() {
   const [adding, setAdding] = useState(false)
   const [offer, setOffer] = useState<string | null>(null)
   const [seenReady, setSeenReady] = useState(false)
-  const lang = useLang()
 
   useEffect(() => {
     void loadSeen().finally(() => setSeenReady(true))
@@ -130,6 +133,11 @@ function Boot() {
   // A pairing link opened from the system camera arrives on whatever screen is showing.
   useEffect(() => {
     const open = (url?: string | null) => { if (url?.startsWith('dsbot://pair')) { setOffer(url); setAdding(true) } }
+    if (Platform.OS === 'web') {
+      const uri = takePairingFragment(window.location, window.history)
+      if (uri !== undefined) { setOffer(uri); setAdding(true) }
+      return
+    }
     void Linking.getInitialURL().then(open)
     const subscription = Linking.addEventListener('url', event => open(event.url))
     return () => subscription.remove()
@@ -153,12 +161,16 @@ function Boot() {
 
 export default function App() {
   const dark = useDark()
+  const lang = useLang()
+  const rootTheme = useMemo(() => ({ dark, p: palette(dark) }), [dark])
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ErrorBoundary>
-          <Boot />
-        </ErrorBoundary>
+        <ThemeContext.Provider value={rootTheme}>
+          <ErrorBoundary>
+            <BrowserSession><Boot lang={lang} /></BrowserSession>
+          </ErrorBoundary>
+        </ThemeContext.Provider>
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

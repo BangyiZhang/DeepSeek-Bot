@@ -54,7 +54,8 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
     const rows = notificationRows({ statuses, roster, approvals: work.approvals })
     const { notices, next } = noticesFor({ previous: previous.current, rows, viewing, focused: open, prefs })
     for (const notice of notices) void shellNotify(notice)
-    previous.current = next
+    // Until the roster is ready a snapshot is no baseline, so what waits at start stays quiet.
+    previous.current = roster.ready === false && previous.current === null ? null : next
     bridge()?.setBadge?.(badgeOf(rows))
   }, [statuses, viewing, roster, work])
   return null

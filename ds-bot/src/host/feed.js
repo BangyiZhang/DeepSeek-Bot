@@ -70,7 +70,7 @@ export function install(rt) {
   }
   rt.notifyLive = live
   ctx.on('agent/status', ({ agent }) => {
-    if (rt.selfOf(agent.id) !== undefined) live()
+    if (rt.selfOf(agent.id) !== undefined || rt.agentOf?.(agent.id) !== undefined) live()
   })
 
   ctx.on('session/event', (session, event) => {

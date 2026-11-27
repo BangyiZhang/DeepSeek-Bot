@@ -5,8 +5,12 @@ import { installStyles } from './styles.js'
 import { nextCollapsedWidth, trackRoom } from './frame-layout.js'
 
 export const sidebarTrackWidth = () => {
-  const box = typeof document === 'undefined' ? undefined : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect()
-  return box === undefined ? null : trackRoom(box)
+  const column = typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')
+  if (!column) return null
+  const position = typeof getComputedStyle === 'function' ? getComputedStyle(column).position : ''
+  // A drawer overlays the grid; its visible strip does not reserve a track.
+  if (position === 'absolute' || position === 'fixed') return 0
+  return trackRoom(column.getBoundingClientRect())
 }
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
@@ -43,6 +47,11 @@ const roomRule = () => {
 const margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`)
   else style.setProperty(`margin-${side}`, `${width}px`, 'important')
+  // A host skin can give the grid item width:100%. That width plus our margins
+  // exceeds its track. Own the width until both margin overrides are released,
+  // including an explicit zero used while our column is hidden.
+  if (style.marginLeft || style.marginRight) style.setProperty('width', 'auto', 'important')
+  else style.removeProperty('width')
 }
 let roomHold = 0
 export const chatRoom = {
@@ -68,10 +77,13 @@ export const chatRoom = {
 // shell sidebar's collapsed track width, and its collapsed flag. A resize or a
 // sidebar slide does not always come with a window event, so the track width
 // comes off a ResizeObserver and the flag off a MutationObserver.
+const COLUMNS = '[class*="_sidebarCol"],[class*="_centerCol"]'
+
 export function installFrameWatch(frame) {
   let collapsedWidth = collapsedTrackWidth()
   let raf = 0
   const watched = new Set()
+  let added = false
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => schedule()) : null
   const read = () => {
     // While the shell slides its sidebar (data-animating on the frame) the
@@ -88,9 +100,17 @@ export function installFrameWatch(frame) {
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next
     })
   }
+  // Scanning a long chat's DOM for the columns costs more than the read, so the
+  // scan runs only while a column is missing, one we watch was replaced, or a
+  // mutation added a column (a second pane next to the two we watch).
   const measure = () => {
-    for (const selector of ['[class*="_sidebarCol"]', '[class*="_centerCol"]']) {
-      for (const column of document.querySelectorAll(selector)) {
+    let scan = added || watched.size < 2
+    added = false
+    for (const column of watched) {
+      if (!column.isConnected) { watched.delete(column); observer?.unobserve(column); scan = true }
+    }
+    if (scan) {
+      for (const column of document.querySelectorAll(COLUMNS)) {
         if (!watched.has(column)) { watched.add(column); observer?.observe(column) }
       }
     }
@@ -99,8 +119,20 @@ export function installFrameWatch(frame) {
   const schedule = () => {
     if (raf === 0) raf = requestAnimationFrame(() => { raf = 0; measure() })
   }
+  const addsColumn = (record) => [...record.addedNodes].some(node => node instanceof Element && (node.matches(COLUMNS) || node.querySelector(COLUMNS) !== null))
+  const relevant = (records) => {
+    let hit = false
+    for (const record of records) {
+      if (record.type === 'attributes') { hit = true; continue }
+      const target = record.target
+      if (target instanceof Element && target.closest('[data-chat-flow],[data-composer-card]')) continue
+      hit = true
+      if (!added && addsColumn(record)) added = true
+    }
+    return hit
+  }
   measure()
-  const mutations = new MutationObserver(schedule)
+  const mutations = new MutationObserver((records) => { if (relevant(records)) schedule() })
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-sidebar-collapsed', 'data-animating'] })
   window.addEventListener('resize', schedule)
   return () => {
